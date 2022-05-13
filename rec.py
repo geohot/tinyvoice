@@ -70,7 +70,7 @@ class Rec(nn.Module):
     x = self.decode(x)
     return torch.nn.functional.log_softmax(x, dim=2)
 
-WAN = True
+WAN = os.getenv("WAN") != None
 if WAN:
   import wandb
 
@@ -92,14 +92,17 @@ def train():
   model = Rec().cuda()
   #model.load_state_dict(torch.load('models/tinyvoice_1652479269_25.pt'))
 
-  optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-  #import apex
-  #optimizer = apex.optimizers.FusedAdam(model.parameters(), lr=learning_rate)
-
   split = int(ex_x.shape[1]*0.9)
   trains = [x for x in list(range(split))*4]
   vals = [x for x in range(split, ex_x.shape[1])]
   val_batches = np.array(vals)[:len(vals)//batch_size * batch_size].reshape(-1, batch_size)
+
+  optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+  #import apex
+  #optimizer = apex.optimizers.FusedAdam(model.parameters(), lr=learning_rate)
+
+  scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=learning_rate,
+    steps_per_epoch=len(trains)//batch_size, epochs=epochs, anneal_strategy='linear')
 
   single_val = load_example('data/LJ037-0171.wav').cuda()
 
@@ -161,6 +164,7 @@ def train():
       loss = ctc_loss(guess, target, input_lengths, target_lengths)
       loss.backward()
       optimizer.step()
+      scheduler.step()
 
       t.set_description(f"epoch: {epoch} loss: {loss.item():.2f}")
       if WAN and j%10 == 0:
