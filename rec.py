@@ -76,7 +76,7 @@ if WAN:
 
 def train():
   epochs = 100
-  learning_rate = 0.003
+  learning_rate = 0.002
   batch_size = 128
 
   if WAN:
