@@ -51,7 +51,8 @@ class Rec(nn.Module):
       nn.Linear(H, H),
       TemporalBatchNorm(H),
       nn.ReLU())
-    self.encoder = nn.GRU(H, H//2, batch_first=False, bidirectional=True)
+    #self.encoder = nn.GRU(H, H//2, batch_first=False, bidirectional=True)
+    self.encoder = nn.GRU(H, H, batch_first=False)
     self.decode = nn.Sequential(
       nn.Linear(H, H//2),
       TemporalBatchNorm(H//2),
