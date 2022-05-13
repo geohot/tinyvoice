@@ -8,6 +8,7 @@ from tqdm.auto import tqdm
 from torch import log_softmax, nn
 import torch.optim as optim
 import numpy as np
+import torchaudio
 from torch.utils.data import Dataset
 from preprocess import load_example, to_text, CHARSET
 
@@ -68,7 +69,7 @@ class Rec(nn.Module):
     x = self.decode(x)
     return torch.nn.functional.log_softmax(x, dim=2)
 
-WAN = True
+WAN = False
 if WAN:
   import wandb
 
@@ -100,6 +101,11 @@ def train():
   val_batches = np.array(vals)[:len(vals)//batch_size * batch_size].reshape(-1, batch_size)
 
   single_val = load_example('data/LJ037-0171.wav').cuda()
+
+  train_audio_transforms = nn.Sequential(
+    torchaudio.transforms.FrequencyMasking(freq_mask_param=15),
+    torchaudio.transforms.TimeMasking(time_mask_param=35)
+  )
 
   for epoch in range(epochs):
     if WAN:
@@ -134,6 +140,7 @@ def train():
     j = 0
     for samples in (t:=tqdm(batches)):
       input, target, input_lengths, target_lengths = get_sample(samples)
+      #input = train_audio_transforms(input)
       target = torch.tensor(target, dtype=torch.int32, device='cuda:0')
 
       optimizer.zero_grad()
