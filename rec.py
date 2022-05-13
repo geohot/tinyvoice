@@ -54,11 +54,11 @@ class Rec(nn.Module):
     self.decode = nn.Sequential(
       nn.Linear(H, H//2),
       TemporalBatchNorm(H//2),
-      #nn.Dropout(0.1, inplace=True),
       nn.ReLU(),
       nn.Linear(H//2, H//4),
       TemporalBatchNorm(H//4),
       nn.ReLU(),
+      nn.Dropout(0.5),
       nn.Linear(H//4, len(CHARSET))
     )
 
@@ -88,7 +88,7 @@ def train():
   timestamp = int(time.time())
   ctc_loss = nn.CTCLoss().cuda()
   model = Rec().cuda()
-  #model.load_state_dict(torch.load('models/tinyvoice_1652472897_98.pt'))
+  #model.load_state_dict(torch.load('models/tinyvoice_1652477678_45.pt'))
 
   optimizer = optim.Adam(model.parameters(), lr=learning_rate)
   #import apex
@@ -131,6 +131,7 @@ def train():
     random.shuffle(trains)
     model.train()
     batches = np.array(trains)[:len(trains)//batch_size * batch_size].reshape(-1, batch_size)
+    j = 0
     for samples in (t:=tqdm(batches)):
       input, target, input_lengths, target_lengths = get_sample(samples)
       target = torch.tensor(target, dtype=torch.int32, device='cuda:0')
@@ -149,8 +150,9 @@ def train():
       optimizer.step()
 
       t.set_description(f"epoch: {epoch} loss: {loss.item():.2f}")
-      if WAN:
+      if WAN and j%10 == 0:
         wandb.log({"loss": loss})
+      j += 1
 
 if __name__ == "__main__":
   train()
