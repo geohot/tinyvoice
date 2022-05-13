@@ -69,7 +69,7 @@ class Rec(nn.Module):
     x = self.decode(x)
     return torch.nn.functional.log_softmax(x, dim=2)
 
-WAN = False
+WAN = True
 if WAN:
   import wandb
 
@@ -89,7 +89,7 @@ def train():
   timestamp = int(time.time())
   ctc_loss = nn.CTCLoss().cuda()
   model = Rec().cuda()
-  #model.load_state_dict(torch.load('models/tinyvoice_1652477678_45.pt'))
+  model.load_state_dict(torch.load('models/tinyvoice_1652479269_25.pt'))
 
   optimizer = optim.Adam(model.parameters(), lr=learning_rate)
   #import apex
@@ -102,8 +102,12 @@ def train():
 
   single_val = load_example('data/LJ037-0171.wav').cuda()
 
+  # TODO: is this the correct shape? possible we are masking batch?
+  # from docs, specgram (Tensor): Tensor of dimension (..., freq, time).
   train_audio_transforms = nn.Sequential(
+    # 80 is the full thing
     torchaudio.transforms.FrequencyMasking(freq_mask_param=15),
+    # 256 is the hop size, so 86 is one second
     torchaudio.transforms.TimeMasking(time_mask_param=35)
   )
 
@@ -140,7 +144,8 @@ def train():
     j = 0
     for samples in (t:=tqdm(batches)):
       input, target, input_lengths, target_lengths = get_sample(samples)
-      #input = train_audio_transforms(input)
+      # input is (time, batch, freq) -> (batch, freq, time)
+      input = train_audio_transforms(input.permute(1,2,0)).permute(2,0,1)
       target = torch.tensor(target, dtype=torch.int32, device='cuda:0')
 
       optimizer.zero_grad()
