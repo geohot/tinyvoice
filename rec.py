@@ -46,28 +46,35 @@ class Rec(nn.Module):
       nn.ReLU(),
       nn.Linear(H, H),
       TemporalBatchNorm(H),
+      nn.ReLU(),
+      nn.Linear(H, H),
+      TemporalBatchNorm(H),
       nn.ReLU())
     self.encoder = nn.GRU(H, H, batch_first=False)
     self.decode = nn.Sequential(
       nn.Linear(H, H//2),
       TemporalBatchNorm(H//2),
+      #nn.Dropout(0.1, inplace=True),
       nn.ReLU(),
-      nn.Linear(H//2, len(CHARSET))
+      nn.Linear(H//2, H//4),
+      TemporalBatchNorm(H//4),
+      nn.ReLU(),
+      nn.Linear(H//4, len(CHARSET))
     )
 
   def forward(self, x):
     x = self.prepare(x)
-    x = nn.functional.relu(self.encoder(x)[0])
+    x = self.encoder(x)[0]
     x = self.decode(x)
     return torch.nn.functional.log_softmax(x, dim=2)
 
-WAN = False
+WAN = True
 if WAN:
   import wandb
 
 def train():
   epochs = 300
-  learning_rate = 0.001 #3e-4
+  learning_rate = 3e-4
   batch_size = 128
 
   if WAN:
@@ -81,18 +88,19 @@ def train():
   timestamp = int(time.time())
   ctc_loss = nn.CTCLoss().cuda()
   model = Rec().cuda()
-  model.load_state_dict(torch.load('models/tinyvoice_1652472897_98.pt'))
+  #model.load_state_dict(torch.load('models/tinyvoice_1652472897_98.pt'))
 
-  #optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-  import apex
-  optimizer = apex.optimizers.FusedAdam(model.parameters(), lr=learning_rate)
+  optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+  #import apex
+  #optimizer = apex.optimizers.FusedAdam(model.parameters(), lr=learning_rate)
 
   split = int(ex_x.shape[1]*0.9)
-  trains = [x for x in range(split)]
+  trains = [x for x in list(range(split))*4]
   vals = [x for x in range(split, ex_x.shape[1])]
   val_batches = np.array(vals)[:len(vals)//batch_size * batch_size].reshape(-1, batch_size)
 
-  val = torch.tensor(load_example('data/LJ037-0171.wav')).cuda()
+  single_val = load_example('data/LJ037-0171.wav').cuda()
+
   for epoch in range(epochs):
     if WAN:
       wandb.watch(model)
@@ -100,7 +108,7 @@ def train():
     with torch.no_grad():
       model.eval()
 
-      mguess = model(val[:, None])
+      mguess = model(single_val[:, None])
       pp = to_text(mguess[:, 0, :].argmax(dim=1).cpu())
       print("VALIDATION", pp)
       if epoch%5 == 0 and epoch != 0:
@@ -112,7 +120,7 @@ def train():
         target = torch.tensor(target, dtype=torch.int32, device='cuda:0')
         guess = model(input)
         loss = ctc_loss(guess, target, input_lengths, target_lengths)
-        print(loss)
+        #print(loss)
         losses.append(loss)
       val_loss = torch.mean(torch.tensor(losses)).item()
       print(f"val_loss: {val_loss:.2f}")
@@ -130,15 +138,17 @@ def train():
       optimizer.zero_grad()
       guess = model(input)
 
+      """
       pp = to_text(guess[:, 0, :].argmax(dim=1).cpu())
       if len(pp) > 0:
         print(pp)
+      """
 
       loss = ctc_loss(guess, target, input_lengths, target_lengths)
       loss.backward()
       optimizer.step()
 
-      t.set_description("loss: %.2f" % loss.item())
+      t.set_description(f"epoch: {epoch} loss: {loss.item():.2f}")
       if WAN:
         wandb.log({"loss": loss})
 
