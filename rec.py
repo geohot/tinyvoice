@@ -140,7 +140,7 @@ def train():
       print(f"val_loss: {val_loss:.2f}")
 
     if WAN:
-      wandb.log({"val_loss": val_loss, "lr": scheduler.get_last_lr()})
+      wandb.log({"val_loss": val_loss, "lr": scheduler.get_last_lr()[0]})
 
     random.shuffle(trains)
     model.train()
