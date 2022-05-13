@@ -84,7 +84,7 @@ class Rec(nn.Module):
       nn.Linear(H, H),
       TemporalBatchNorm(H),
       nn.ReLU())
-    self.encoder = nn.GRU(H, H, batch_first=False, dropout=0.1)
+    self.encoder = nn.GRU(H, H, batch_first=False)
     self.decode = nn.Sequential(
       nn.Linear(H, H//2),
       TemporalBatchNorm(H//2),
@@ -138,7 +138,7 @@ def train():
   valdset, valloader = get_dataloader(batch_size, True)
   ctc_loss = nn.CTCLoss(reduction='mean', zero_infinity=True).cuda()
   model = Rec().cuda()
-  #model.load_state_dict(torch.load('models/tinyvoice_1652469889_28.pt'))
+  model.load_state_dict(torch.load('models/tinyvoice_1652470651_9.pt'))
 
   #optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
   optimizer = optim.Adam(model.parameters(), lr=learning_rate)
