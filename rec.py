@@ -76,7 +76,7 @@ if WAN:
 
 def train():
   epochs = 100
-  learning_rate = 0.005
+  learning_rate = 0.003
   batch_size = 128
 
   if WAN:
@@ -101,7 +101,7 @@ def train():
   #import apex
   #optimizer = apex.optimizers.FusedAdam(model.parameters(), lr=learning_rate)
 
-  scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=learning_rate,
+  scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=learning_rate, pct_start=0.2,
     steps_per_epoch=len(trains)//batch_size, epochs=epochs, anneal_strategy='linear', verbose=False)
 
   single_val = load_example('data/LJ037-0171.wav').cuda()
@@ -140,7 +140,7 @@ def train():
       print(f"val_loss: {val_loss:.2f}")
 
     if WAN:
-      wandb.log({"val_loss": val_loss, "lr": scheduler.get_lr()})
+      wandb.log({"val_loss": val_loss, "lr": scheduler.get_last_lr()})
 
     random.shuffle(trains)
     model.train()
