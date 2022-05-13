@@ -51,7 +51,7 @@ class Rec(nn.Module):
       nn.Linear(H, H),
       TemporalBatchNorm(H),
       nn.ReLU())
-    self.encoder = nn.GRU(H, H, batch_first=False)
+    self.encoder = nn.GRU(H, H//2, batch_first=False, bidirectional=True)
     self.decode = nn.Sequential(
       nn.Linear(H, H//2),
       TemporalBatchNorm(H//2),
@@ -89,7 +89,7 @@ def train():
   timestamp = int(time.time())
   ctc_loss = nn.CTCLoss().cuda()
   model = Rec().cuda()
-  model.load_state_dict(torch.load('models/tinyvoice_1652479269_25.pt'))
+  #model.load_state_dict(torch.load('models/tinyvoice_1652479269_25.pt'))
 
   optimizer = optim.Adam(model.parameters(), lr=learning_rate)
   #import apex
