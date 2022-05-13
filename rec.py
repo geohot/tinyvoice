@@ -49,23 +49,39 @@ class LJSpeech(Dataset):
       cache[idx] = load_example(x), y
     return cache[idx]
 
+class TemporalBatchNorm(nn.Module):
+  def __init__(self, channels):
+    super().__init__()
+    self.bn = nn.BatchNorm1d(channels)
+
+  def forward(self, x):
+    # (L, N, C)
+    xx = x.permute(1,2,0)
+    # (N, C, L)
+    xx = self.bn(xx)
+    xx = xx.permute(2,0,1)
+    #print(x.shape, xx.shape)
+    #return self.bn(x.permute(1,2,0)).permute(1,2,0)
+    return xx
+
 class Rec(nn.Module):
   def __init__(self):
     super().__init__()
+    H = 256
     # (L, N, C)
     self.prepare = nn.Sequential(
-      nn.Linear(80, 128),
-      #nn.BatchNorm1d(128),
+      nn.Linear(80, H),
+      TemporalBatchNorm(H),
       nn.ReLU(),
-      nn.Linear(128, 128),
-      #nn.BatchNorm1d(128),
+      nn.Linear(H, H),
+      TemporalBatchNorm(H),
       nn.ReLU())
-    self.encoder = nn.GRU(128, 128, batch_first=False)
+    self.encoder = nn.GRU(H, H, batch_first=False)
     self.decode = nn.Sequential(
-      nn.Linear(128, 64),
-      #nn.BatchNorm1d(64),
+      nn.Linear(H, H//2),
+      TemporalBatchNorm(H//2),
       nn.ReLU(),
-      nn.Linear(64, len(CHARSET))
+      nn.Linear(H//2, len(CHARSET))
     )
 
   def forward(self, x):
@@ -81,9 +97,12 @@ def pad_sequence(batch):
   target_lengths = [len(x[1]) for x in sorted_batch]
   sequences = [x[0] for x in sorted_batch]
   sequences_padded = torch.nn.utils.rnn.pad_sequence(sequences, batch_first=False)
-  labels = [x[1]+[0]*(YMAX - len(x[1])) for x in sorted_batch]
-  labels = torch.LongTensor(labels)
-  return sequences_padded, labels[:, :max(target_lengths)], input_lengths, target_lengths
+  labels = sum([x[1] for x in sorted_batch], [])
+  labels = torch.tensor(labels, dtype=torch.int32)
+  #labels = [x[1]+[0]*(YMAX - len(x[1])) for x in sorted_batch]
+  #labels = torch.LongTensor(labels)
+  #labels = labels[:, :max(target_lengths)]
+  return sequences_padded, labels, input_lengths, target_lengths
 
 def get_dataloader(batch_size):
   dset = LJSpeech()
@@ -92,12 +111,14 @@ def get_dataloader(batch_size):
 
 import wandb
 
+WAN = True
 def train():
-  wandb.init(project="tinyvoice", entity="geohot")
+  if WAN:
+    wandb.init(project="tinyvoice", entity="geohot")
 
   epochs = 100
   learning_rate = 0.001
-  batch_size = 32
+  batch_size = 64
   wandb.config = {
     "learning_rate": learning_rate,
     "epochs": epochs,
@@ -108,13 +129,14 @@ def train():
   dset, trainloader = get_dataloader(batch_size)
   ctc_loss = nn.CTCLoss(reduction='mean', zero_infinity=True).cuda()
   model = Rec().cuda()
-  model.load_state_dict(torch.load('models/tinyvoice_1652467296_9.pt'))
+  #model.load_state_dict(torch.load('models/tinyvoice_1652467296_9.pt'))
 
   #optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
   optimizer = optim.Adam(model.parameters(), lr=learning_rate)
   val = torch.tensor(load_example('data/LJ037-0171.wav')).cuda()
   for epoch in range(epochs):
-    wandb.watch(model)
+    if WAN:
+      wandb.watch(model)
 
     mguess = model(val[:, None])
     pp = ''.join([CHARSET[c-1] for c in mguess[:, 0, :].argmax(dim=1).cpu() if c != 0])
@@ -143,7 +165,8 @@ def train():
       loss.backward()
       optimizer.step()
       t.set_description("loss: %.2f" % loss.item())
-      wandb.log({"loss": loss})
+      if WAN:
+        wandb.log({"loss": loss})
 
 if __name__ == "__main__":
   train()
