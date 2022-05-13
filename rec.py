@@ -36,8 +36,14 @@ def load_example(x):
   #return 10*torch.log10(mel_specgram[0]).T
   return mel_specgram[0].T
 
-import hashlib
 cache = {}
+def init_data():
+  meta = get_metadata()
+  for x,y in tqdm(meta):
+    cache[x] = load_example(x), y
+init_data()
+
+import hashlib
 class LJSpeech(Dataset):
   def __init__(self, val=False):
     self.meta = get_metadata()
@@ -52,10 +58,11 @@ class LJSpeech(Dataset):
     return len(self.meta)
 
   def __getitem__(self, idx):
-    if idx not in cache:
-      x,y = self.meta[idx]
-      cache[idx] = load_example(x), y
-    return cache[idx]
+    x,y = self.meta[idx]
+    if x not in cache:
+      print("NEVER SHOULD HAPPEN")
+      cache[x] = load_example(x), y
+    return cache[x]
 
 class TemporalBatchNorm(nn.Module):
   def __init__(self, channels):
@@ -114,7 +121,7 @@ def pad_sequence(batch):
 
 def get_dataloader(batch_size, val):
   dset = LJSpeech(val)
-  trainloader = torch.utils.data.DataLoader(dset, batch_size=batch_size, shuffle=True, num_workers=4, collate_fn=pad_sequence)
+  trainloader = torch.utils.data.DataLoader(dset, batch_size=batch_size, shuffle=True, num_workers=2 if val else 8, collate_fn=pad_sequence, pin_memory=True)
   return dset, trainloader
 
 import wandb
@@ -124,9 +131,9 @@ def train():
   if WAN:
     wandb.init(project="tinyvoice", entity="geohot")
 
-  epochs = 100
-  learning_rate = 0.001
-  batch_size = 64
+  epochs = 300
+  learning_rate = 3e-4
+  batch_size = 128
   wandb.config = {
     "learning_rate": learning_rate,
     "epochs": epochs,
@@ -136,21 +143,24 @@ def train():
   timestamp = int(time.time())
   dset, trainloader = get_dataloader(batch_size, False)
   valdset, valloader = get_dataloader(batch_size, True)
-  ctc_loss = nn.CTCLoss(reduction='mean', zero_infinity=True).cuda()
+  ctc_loss = nn.CTCLoss().cuda()
   model = Rec().cuda()
-  model.load_state_dict(torch.load('models/tinyvoice_1652470651_9.pt'))
+  model.load_state_dict(torch.load('models/tinyvoice_1652472269_7.pt'))
 
   #optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-  optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+  import apex
+  optimizer = apex.optimizers.FusedAdam(model.parameters(), lr=learning_rate)
+  #optimizer = optim.Adam(model.parameters(), lr=learning_rate)
   val = torch.tensor(load_example('data/LJ037-0171.wav')).cuda()
   for epoch in range(epochs):
     if WAN:
       wandb.watch(model)
 
-    mguess = model(val[:, None])
-    pp = ''.join([CHARSET[c-1] for c in mguess[:, 0, :].argmax(dim=1).cpu() if c != 0])
-    print("VALIDATION", pp)
-    torch.save(model.state_dict(), f"models/tinyvoice_{timestamp}_{epoch}.pt")
+    if epoch%2 == 0:
+      mguess = model(val[:, None])
+      pp = ''.join([CHARSET[c-1] for c in mguess[:, 0, :].argmax(dim=1).cpu() if c != 0])
+      print("VALIDATION", pp)
+      torch.save(model.state_dict(), f"models/tinyvoice_{timestamp}_{epoch}.pt")
 
     t = tqdm(valloader, total=len(valdset)//batch_size)
     losses = []
@@ -178,9 +188,11 @@ def train():
       #print(target)
       #print(guess.shape, target.shape, input_lengths, target_lengths)
 
+      """
       pp = ''.join([CHARSET[c-1] for c in guess[:, 0, :].argmax(dim=1).cpu() if c != 0])
       if len(pp) > 0:
         print(pp)
+      """
 
       loss = ctc_loss(guess, target, input_lengths, target_lengths)
       #print(loss)
