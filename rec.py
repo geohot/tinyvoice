@@ -16,6 +16,8 @@ XMAX = 870    # about 10 seconds
 YMAX = 150
 SAMPLE_RATE = 22050
 
+import functools
+@functools.lru_cache(None)
 def get_metadata():
   ret = []
   with open(os.path.join(DATASET, 'metadata.csv'), newline='') as csvfile:
@@ -24,7 +26,6 @@ def get_metadata():
       answer = [CHARSET.index(c)+1 for c in row[1].lower() if c in CHARSET]
       if len(answer) <= YMAX:
         ret.append((os.path.join(DATASET, 'wavs', row[0]+".wav"), answer))
-  print("got metadata", len(ret))
   return ret
 
 mel_transform = torchaudio.transforms.MelSpectrogram(SAMPLE_RATE, n_fft=1024, win_length=1024, hop_length=256, n_mels=80)
@@ -35,10 +36,17 @@ def load_example(x):
   #return 10*torch.log10(mel_specgram[0]).T
   return mel_specgram[0].T
 
+import hashlib
 cache = {}
 class LJSpeech(Dataset):
-  def __init__(self):
+  def __init__(self, val=False):
     self.meta = get_metadata()
+    if val:
+      cmp = lambda x: hashlib.sha1(x[0].encode('utf-8')).hexdigest()[0] == '0'
+    else:
+      cmp = lambda x: hashlib.sha1(x[0].encode('utf-8')).hexdigest()[0] != '0'
+    self.meta = [x for x in self.meta if cmp(x)]
+    print(f"set has {len(self.meta)}")
 
   def __len__(self):
     return len(self.meta)
@@ -76,7 +84,7 @@ class Rec(nn.Module):
       nn.Linear(H, H),
       TemporalBatchNorm(H),
       nn.ReLU())
-    self.encoder = nn.GRU(H, H, batch_first=False)
+    self.encoder = nn.GRU(H, H, batch_first=False, dropout=0.1)
     self.decode = nn.Sequential(
       nn.Linear(H, H//2),
       TemporalBatchNorm(H//2),
@@ -104,8 +112,8 @@ def pad_sequence(batch):
   #labels = labels[:, :max(target_lengths)]
   return sequences_padded, labels, input_lengths, target_lengths
 
-def get_dataloader(batch_size):
-  dset = LJSpeech()
+def get_dataloader(batch_size, val):
+  dset = LJSpeech(val)
   trainloader = torch.utils.data.DataLoader(dset, batch_size=batch_size, shuffle=True, num_workers=4, collate_fn=pad_sequence)
   return dset, trainloader
 
@@ -126,10 +134,11 @@ def train():
   }
 
   timestamp = int(time.time())
-  dset, trainloader = get_dataloader(batch_size)
+  dset, trainloader = get_dataloader(batch_size, False)
+  valdset, valloader = get_dataloader(batch_size, True)
   ctc_loss = nn.CTCLoss(reduction='mean', zero_infinity=True).cuda()
   model = Rec().cuda()
-  #model.load_state_dict(torch.load('models/tinyvoice_1652467296_9.pt'))
+  #model.load_state_dict(torch.load('models/tinyvoice_1652469889_28.pt'))
 
   #optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
   optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -142,6 +151,20 @@ def train():
     pp = ''.join([CHARSET[c-1] for c in mguess[:, 0, :].argmax(dim=1).cpu() if c != 0])
     print("VALIDATION", pp)
     torch.save(model.state_dict(), f"models/tinyvoice_{timestamp}_{epoch}.pt")
+
+    t = tqdm(valloader, total=len(valdset)//batch_size)
+    losses = []
+    for data in t:
+      input, target, input_lengths, target_lengths = data
+      input = input.to('cuda:0', non_blocking=True)
+      target = target.to('cuda:0', non_blocking=True)
+      guess = model(input)
+      loss = ctc_loss(guess, target, input_lengths, target_lengths)
+      losses.append(loss)
+    val_loss = torch.mean(torch.tensor(losses)).item()
+    print(f"val_loss: {val_loss:.2f}")
+    if WAN:
+      wandb.log({"val_loss": val_loss})
 
     t = tqdm(trainloader, total=len(dset)//batch_size)
     for data in t:
