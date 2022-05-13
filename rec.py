@@ -102,7 +102,7 @@ def train():
   #optimizer = apex.optimizers.FusedAdam(model.parameters(), lr=learning_rate)
 
   scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=learning_rate,
-    steps_per_epoch=len(trains)//batch_size, epochs=epochs, anneal_strategy='linear', verbose=True)
+    steps_per_epoch=len(trains)//batch_size, epochs=epochs, anneal_strategy='linear', verbose=False)
 
   single_val = load_example('data/LJ037-0171.wav').cuda()
 
