@@ -108,11 +108,15 @@ def train():
   dset, trainloader = get_dataloader(batch_size)
   ctc_loss = nn.CTCLoss(reduction='mean', zero_infinity=True).cuda()
   model = Rec().cuda()
+  model.load_state_dict(torch.load('models/tinyvoice_1652467296_9.pt'))
+
   #optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
   optimizer = optim.Adam(model.parameters(), lr=learning_rate)
   val = torch.tensor(load_example('data/LJ037-0171.wav')).cuda()
   for epoch in range(epochs):
-    mguess = model(val[None])
+    wandb.watch(model)
+
+    mguess = model(val[:, None])
     pp = ''.join([CHARSET[c-1] for c in mguess[:, 0, :].argmax(dim=1).cpu() if c != 0])
     print("VALIDATION", pp)
     torch.save(model.state_dict(), f"models/tinyvoice_{timestamp}_{epoch}.pt")
@@ -140,8 +144,6 @@ def train():
       optimizer.step()
       t.set_description("loss: %.2f" % loss.item())
       wandb.log({"loss": loss})
-      wandb.watch(model)
-
 
 if __name__ == "__main__":
   train()
