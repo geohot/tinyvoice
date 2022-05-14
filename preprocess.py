@@ -12,7 +12,9 @@ SAMPLE_RATE = 22050
 XMAX = 870    # about 10 seconds
 YMAX = 150
 
+import itertools
 def to_text(x):
+  x = [k for k, g in itertools.groupby(x)]
   return ''.join([CHARSET[c-1] for c in x if c != 0])
 
 def from_text(x):
