@@ -59,7 +59,7 @@ if WAN:
 def train():
   epochs = 100
   learning_rate = 0.002
-  batch_size = 32
+  batch_size = 64
 
   if WAN:
     wandb.init(project="tinyvoice", entity="geohot")
@@ -95,7 +95,7 @@ def train():
     with torch.no_grad():
       model.eval()
 
-      mguess = model(single_val[None], torch.tensor([single_val.shape[0]]).cuda())
+      mguess = model(single_val[None], [single_val.shape[0]])
       pp = to_text(mguess[:, 0, :].argmax(dim=1).cpu())
       print("VALIDATION", pp)
       if epoch%5 == 0:

@@ -11,12 +11,10 @@ class ResBlock(nn.Module):
   def __init__(self, c):
     super().__init__()
     self.block = nn.Sequential(
-      # depthwise
-      nn.Conv2d(c, c, 3, groups=c, padding='same', bias=False),
+      nn.Conv2d(c, c, 3, padding='same'),
       nn.BatchNorm2d(c),
       nn.ReLU(c),
-      # project
-      nn.Conv2d(c, c, 1, bias=False),
+      nn.Conv2d(c, c, 3, padding='same'),
       nn.BatchNorm2d(c))
   
   def forward(self, x):
@@ -33,19 +31,18 @@ class Rec(nn.Module):
   def __init__(self):
     super().__init__()
 
-    C, H = 16, 320
+    C, H = 16, 256
     self.encode = nn.Sequential(
-      nn.Conv2d(1, C, 1, stride=2, bias=False),
-      nn.BatchNorm2d(C),
+      nn.Conv2d(1, C, 1, stride=2),
       nn.ReLU(),
       ResBlock(C),
-      ResBlock(C),
-      nn.Conv2d(C, C, 1, stride=2, bias=False),
-      nn.BatchNorm2d(C),
+      #ResBlock(C),
+      nn.Conv2d(C, C, 1, stride=2),
       nn.ReLU(),
       ResBlock(C),
-      ResBlock(C),
+      #ResBlock(C),
     )
+    self.flatten = nn.Linear(320, H)
     self.gru = nn.GRU(H, H, batch_first=True)
 
     #H = 80
@@ -56,6 +53,7 @@ class Rec(nn.Module):
       nn.ReLU(),
       nn.Linear(H//2, H//4),
       TemporalBatchNorm(H//4),
+      nn.ReLU(),
       nn.Dropout(0.5),
       nn.Linear(H//4, len(CHARSET))
     )
@@ -67,6 +65,7 @@ class Rec(nn.Module):
     # (batch, C, H, W)
     x = self.encode(x).permute(0, 2, 1, 3) # (batch, H(time), C, W)
     x = x.reshape(x.shape[0], x.shape[1], -1)
+    x = self.flatten(x)
     x = self.gru(x)[0]
     x = self.decode(x)
     #x = self.conformer(x,y)[0].permute(1,0,2)
