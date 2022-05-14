@@ -15,13 +15,16 @@ YMAX = 150
 def to_text(x):
   return ''.join([CHARSET[c-1] for c in x if c != 0])
 
+def from_text(x):
+  return [CHARSET.index(c)+1 for c in x.lower() if c in CHARSET]
+
 @functools.lru_cache(None)
 def get_metadata():
   ret = []
   with open(os.path.join(DATASET, 'metadata.csv'), newline='') as csvfile:
     reader = csv.reader(csvfile, delimiter='|')
     for row in reader:
-      answer = [CHARSET.index(c)+1 for c in row[1].lower() if c in CHARSET]
+      answer = from_text(row[1])
       if len(answer) <= YMAX:
         ret.append((os.path.join(DATASET, 'wavs', row[0]+".wav"), answer))
   return ret

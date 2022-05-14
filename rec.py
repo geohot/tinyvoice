@@ -10,7 +10,7 @@ import torch.optim as optim
 import numpy as np
 import torchaudio
 from torch.utils.data import Dataset
-from preprocess import load_example, to_text, CHARSET
+from preprocess import load_example, to_text, CHARSET, from_text
 
 def load_data(dset):
   global ex_x, ex_y
@@ -25,8 +25,9 @@ def load_data(dset):
 def get_sample(samples):
   input = ex_x[:, samples]
   input_lengths = [ex_y[i][1] for i in samples]
-  target = sum([ex_y[i][2] for i in samples], [])
-  target_lengths = [len(ex_y[i][2]) for i in samples]
+  targets = [from_text(ex_y[i][2]) for i in samples]
+  target = sum(targets, [])
+  target_lengths = [len(x) for x in targets]
   return input, target, input_lengths, target_lengths
 
 class ResBlock(nn.Module):
@@ -193,6 +194,6 @@ def train():
       j += 1
 
 if __name__ == "__main__":
-  #load_data('libri')
-  load_data('lj')
+  load_data('libri')
+  #load_data('lj')
   train()
