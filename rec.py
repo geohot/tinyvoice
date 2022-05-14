@@ -35,10 +35,12 @@ train_audio_transforms = nn.Sequential(
 )
 
 def get_sample(samples, val=False):
-  X = ex_x[samples].type(torch.float32)
+  #input_lengths = [meta[i][1]//4 for i in samples]
+  max_input_length = max([meta[i][1] for i in samples])
+  input_lengths = torch.tensor([meta[i][1] for i in samples]).cuda()
+  target_lengths = torch.tensor([meta[i][2] for i in samples]).cuda()
+  X = ex_x[samples, :max_input_length].type(torch.float32)
   Y = ex_y[samples] #.type(torch.int32)
-  input_lengths = [meta[i][1]//4 for i in samples]
-  target_lengths = [meta[i][2] for i in samples]
   if not val:
     X = train_audio_transforms(X.permute(0,2,1)).permute(0,2,1)
   return X, Y, input_lengths, target_lengths
@@ -50,7 +52,7 @@ if WAN:
 def train():
   epochs = 100
   learning_rate = 0.002
-  batch_size = 64
+  batch_size = 32
 
   if WAN:
     wandb.init(project="tinyvoice", entity="geohot")
@@ -61,17 +63,18 @@ def train():
     }
 
   timestamp = int(time.time())
+
   model = Rec().cuda()
-  model.load_state_dict(torch.load('models/tinyvoice_1652557893_30.pt'))
+  #model.load_state_dict(torch.load('models/tinyvoice_1652557893_30.pt'))
 
   split = int(ex_x.shape[0]*0.9)
   trains = [x for x in list(range(split))]
   vals = [x for x in range(split, ex_x.shape[0])]
   val_batches = np.array(vals)[:len(vals)//batch_size * batch_size].reshape(-1, batch_size)
 
-  optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-  #import apex
-  #optimizer = apex.optimizers.FusedAdam(model.parameters(), lr=learning_rate)
+  #optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+  import apex
+  optimizer = apex.optimizers.FusedAdam(model.parameters(), lr=learning_rate)
 
   scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=learning_rate, pct_start=0.2,
     steps_per_epoch=len(trains)//batch_size, epochs=epochs, anneal_strategy='linear', verbose=False)
@@ -85,16 +88,18 @@ def train():
     with torch.no_grad():
       model.eval()
 
-      mguess = model(single_val[None])
+      mguess = model(single_val[None], torch.tensor([single_val.shape[0]]).cuda())
       pp = to_text(mguess[:, 0, :].argmax(dim=1).cpu())
       print("VALIDATION", pp)
       if epoch%5 == 0:
-        torch.save(model.state_dict(), f"models/tinyvoice_{timestamp}_{epoch}.pt")
+        fn = f"models/tinyvoice_{timestamp}_{epoch}.pt"
+        print(f"saving model {fn}")
+        torch.save(model.state_dict(), fn)
 
       losses = []
       for samples in (t:=tqdm(val_batches)):
         input, target, input_lengths, target_lengths = get_sample(samples, val=True)
-        guess = model(input)
+        guess = model(input, input_lengths)
         loss = F.ctc_loss(guess, target, input_lengths, target_lengths)
         losses.append(loss)
       val_loss = torch.mean(torch.tensor(losses)).item()
@@ -111,7 +116,7 @@ def train():
     def run_model(samples):
       input, target, input_lengths, target_lengths = samples
       optimizer.zero_grad()
-      guess = model(input)
+      guess = model(input, input_lengths)
       loss = F.ctc_loss(guess, target, input_lengths, target_lengths)
       loss.backward()
       optimizer.step()
