@@ -1,19 +1,35 @@
 #!/usr/bin/env python3
 import os
-import torchaudio
+os.environ['OMP_NUM_THREADS'] = '1'
+
 import torch
 from tqdm.auto import tqdm
+from preprocess import from_text
+from multiprocessing import Pool
 
 DATASET = "/raid/ljspeech/LibriSpeech"
-XMAX = 1050
+XMAX = 1600
 YMAX = 250
-SAMPLE_RATE = 16000
-mel_transform = torchaudio.transforms.MelSpectrogram(SAMPLE_RATE, n_fft=1024, win_length=1024, hop_length=256, n_mels=80)
+MS_PER_SAMPLE = 10
+
+mel_transform = {}
 def load_example(x):
+  import torchaudio
   waveform, sample_rate = torchaudio.load(x, normalize=True)
-  assert(sample_rate == SAMPLE_RATE)
-  mel_specgram = mel_transform(waveform)
-  return mel_specgram[0].T
+  if sample_rate not in mel_transform:
+    hop_length = int(sample_rate/(1000/MS_PER_SAMPLE))
+    mel_transform[sample_rate] = torchaudio.transforms.MelSpectrogram(sample_rate, n_fft=hop_length*4, win_length=hop_length*4, hop_length=hop_length, n_mels=80)
+  mel_specgram = mel_transform[sample_rate](waveform)
+  return torch.log10(mel_specgram[0].T)
+
+def proc(xy):
+  x,y = xy
+  ex = load_example(x)
+  ey = torch.tensor(from_text(y), dtype=torch.uint8)
+  if ex.shape[0] < XMAX and len(ey) < YMAX:
+    return ex, ey, (x, ex.shape[0], len(ey))
+  else:
+    return None, None, None
 
 if __name__ == "__main__":
   dispatch = []
@@ -29,16 +45,18 @@ if __name__ == "__main__":
           y = meta[dll[:-5]]
           dispatch.append((x,y))
 
-  ex_x, ex_y = [], []
-  for x,y in tqdm(dispatch):
-    ex = load_example(x)
-    if ex.shape[0] < XMAX and len(y) < YMAX:
-      ex_x.append(ex)
-      ex_y.append((x, ex.shape[0], y))
-  sequences_padded = torch.nn.utils.rnn.pad_sequence(ex_x, batch_first=False) #.type(torch.float16)
-  print(sequences_padded.shape, sequences_padded.dtype)
-  print(ex_y[0])
-  torch.save(sequences_padded, "data/libri_x.pt")
-  torch.save(ex_y, "data/libri_y.pt")
+  dispatch = dispatch[0:1000]
+
+  ex_x, ex_y, ameta = [], [], []
+  with Pool(processes=32) as pool:
+    #for ex,ey,meta in tqdm(map(proc, dispatch), total=len(dispatch)):
+    for ex,ey,meta in tqdm(pool.imap_unordered(proc, dispatch), total=len(dispatch)):
+      if ex is not None:
+        ex_x.append(ex)
+        ex_y.append(ey)
+        ameta.append(meta)
+  sequences_padded = torch.nn.utils.rnn.pad_sequence(ex_x, batch_first=True).type(torch.float16)
+  ys_padded = torch.nn.utils.rnn.pad_sequence(ex_y, batch_first=True).type(torch.uint8)
+  torch.save([sequences_padded, ys_padded, ameta], "data/libri.pt")
 
 

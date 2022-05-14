@@ -10,87 +10,26 @@ import torch.optim as optim
 import numpy as np
 import torchaudio
 from torch.utils.data import Dataset
-from preprocess import load_example, to_text, CHARSET, from_text
+from preprocess import to_text, CHARSET, from_text
+from preprocess_libri import load_example
+from model import Rec
 
 def load_data(dset):
-  global ex_x, ex_y
-  print("loading data X")
-  ex_x = torch.load('data/'+dset+'_x.pt') #, map_location="cuda:0")
-  print("copying to GPU", ex_x.shape)
+  global ex_x, ex_y, meta
+  print("loading data")
+  ex_x, ex_y, meta = torch.load('data/'+dset+'.pt') #, map_location="cuda:0")
+  print("copying to GPU", ex_x.shape, ex_x.dtype)
   ex_x = ex_x.to(device="cuda:0", non_blocking=True)
-  print("loading data Y")
-  ex_y = torch.load('data/'+dset+'_y.pt')
+  print("copying to GPU", ex_y.shape, ex_y.dtype)
+  ex_y = ex_y.to(device="cuda:0", non_blocking=True)
   print("data loaded")
 
 def get_sample(samples):
-  input = ex_x[:, samples]
-  input_lengths = [ex_y[i][1] for i in samples]
-  targets = [from_text(ex_y[i][2]) for i in samples]
-  target = sum(targets, [])
-  target_lengths = [len(x) for x in targets]
-  return input, target, input_lengths, target_lengths
-
-class ResBlock(nn.Module):
-  def __init__(self, c):
-    super().__init__()
-    self.block = nn.Sequential(
-      nn.Conv2d(c, c, 3, padding='same'),
-      nn.BatchNorm2d(c),
-      nn.ReLU(c),
-      nn.Conv2d(c, c, 3, padding='same'),
-      nn.BatchNorm2d(c))
-  
-  def forward(self, x):
-    return nn.functional.relu(x + self.block(x))
-
-class TemporalBatchNorm(nn.Module):
-  def __init__(self, channels):
-    super().__init__()
-    self.bn = nn.BatchNorm1d(channels)
-  def forward(self, x):
-    return self.bn(x.permute(1,2,0)).permute(2,0,1)
-
-class Rec(nn.Module):
-  def __init__(self):
-    super().__init__()
-
-    C = 16 
-    H = 256
-
-    self.encode = nn.Sequential(
-      nn.Conv2d(1, C, 3, stride=(1,C//2), padding=(1,0)),
-      ResBlock(C),
-      ResBlock(C),
-      ResBlock(C),
-    )
-    self.flatten = nn.Linear(2*80, H)
-
-    self.gru = nn.GRU(H, H, batch_first=False)
-    self.decode = nn.Sequential(
-      nn.Linear(H, H//2),
-      TemporalBatchNorm(H//2),
-      nn.ReLU(),
-      nn.Linear(H//2, H//4),
-      TemporalBatchNorm(H//4),
-      nn.ReLU(),
-      nn.Dropout(0.5),
-      nn.Linear(H//4, len(CHARSET))
-    )
-
-  def forward(self, x):
-    # (time, batch, freq)
-    #print(x.shape)
-    x = x.permute(1,0,2)[:, None] # (time, batch, freq) -> (batch, time, freq)
-    # (batch, C, H, W)
-    x = self.encode(x).permute(2, 0, 1, 3) # (H, batch, C, W)
-    x = x.reshape(x.shape[0], x.shape[1], -1)
-    x = self.flatten(x)
-    x = self.gru(x)[0]
-    x = self.decode(x)
-    return torch.nn.functional.log_softmax(x, dim=2)
-
-#Rec()(torch.zeros(200, 32, 80))
-#exit(0)
+  X = ex_x[samples].type(torch.float32)
+  Y = ex_y[samples].type(torch.int32)
+  input_lengths = [meta[i][1]//4 for i in samples]
+  target_lengths = [meta[i][2] for i in samples]
+  return X, Y, input_lengths, target_lengths
 
 WAN = os.getenv("WAN") != None
 if WAN:
@@ -98,8 +37,8 @@ if WAN:
 
 def train():
   epochs = 100
-  learning_rate = 0.002
-  batch_size = 128
+  learning_rate = 0.001
+  batch_size = 32
 
   if WAN:
     wandb.init(project="tinyvoice", entity="geohot")
@@ -114,8 +53,8 @@ def train():
   model = Rec().cuda()
   #model.load_state_dict(torch.load('models/tinyvoice_1652479269_25.pt'))
 
-  split = int(ex_x.shape[1]*0.9)
-  trains = [x for x in list(range(split))*4]
+  split = int(ex_x.shape[0]*0.9)
+  trains = [x for x in list(range(split))*2]
   vals = [x for x in range(split, ex_x.shape[1])]
   val_batches = np.array(vals)[:len(vals)//batch_size * batch_size].reshape(-1, batch_size)
 
@@ -150,16 +89,17 @@ def train():
       if epoch%5 == 0:
         torch.save(model.state_dict(), f"models/tinyvoice_{timestamp}_{epoch}.pt")
 
+      """
       losses = []
       for samples in (t:=tqdm(val_batches)):
         input, target, input_lengths, target_lengths = get_sample(samples)
-        target = torch.tensor(target, dtype=torch.int32, device='cuda:0')
         guess = model(input)
         loss = ctc_loss(guess, target, input_lengths, target_lengths)
         #print(loss)
         losses.append(loss)
       val_loss = torch.mean(torch.tensor(losses)).item()
       print(f"val_loss: {val_loss:.2f}")
+      """
 
     if WAN:
       wandb.log({"val_loss": val_loss, "lr": scheduler.get_last_lr()[0]})
@@ -170,9 +110,8 @@ def train():
     j = 0
     for samples in (t:=tqdm(batches)):
       input, target, input_lengths, target_lengths = get_sample(samples)
-      # input is (time, batch, freq) -> (batch, freq, time)
-      input = train_audio_transforms(input.permute(1,2,0)).permute(2,0,1)
-      target = torch.tensor(target, dtype=torch.int32, device='cuda:0')
+      # input is (batch, time, freq) -> (batch, freq, time)
+      input = train_audio_transforms(input.permute(0,2,1)).permute(0,2,1)
 
       optimizer.zero_grad()
       guess = model(input)

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 import os
 import functools
-import torchaudio
+#import torchaudio
 import csv
 from tqdm.auto import tqdm
 import torch
 
-CHARSET = " abcdefghijklmnopqrstuvwxyz,."
+CHARSET = " abcdefghijklmnopqrstuvwxyz,.'"
 DATASET = "/raid/ljspeech/LJSpeech-1.1"
 SAMPLE_RATE = 22050
 XMAX = 870    # about 10 seconds
@@ -31,7 +31,7 @@ def get_metadata():
         ret.append((os.path.join(DATASET, 'wavs', row[0]+".wav"), answer))
   return ret
 
-mel_transform = torchaudio.transforms.MelSpectrogram(SAMPLE_RATE, n_fft=1024, win_length=1024, hop_length=256, n_mels=80)
+#mel_transform = torchaudio.transforms.MelSpectrogram(SAMPLE_RATE, n_fft=1024, win_length=1024, hop_length=256, n_mels=80)
 def load_example(x):
   waveform, sample_rate = torchaudio.load(x, normalize=True)
   assert(sample_rate == SAMPLE_RATE)
