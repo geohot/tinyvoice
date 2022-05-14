@@ -19,10 +19,12 @@ def load_data(dset):
   global ex_x, ex_y, meta
   print("loading data")
   ex_x, ex_y, meta = torch.load('data/'+dset+'.pt') #, map_location="cuda:0")
+  """
   print("copying to GPU", ex_x.shape, ex_x.dtype)
   ex_x = ex_x.to(device="cuda:0", non_blocking=True)
   print("copying to GPU", ex_y.shape, ex_y.dtype)
   ex_y = ex_y.to(device="cuda:0", non_blocking=True)
+  """
   print("data loaded")
 
 # TODO: is this the correct shape? possible we are masking batch?
@@ -38,8 +40,8 @@ def get_sample(samples, val=False):
   input_lengths = [meta[i][1] for i in samples]
   target_lengths = [meta[i][2] for i in samples]
   max_input_length = max(input_lengths)
-  X = ex_x[samples, :max_input_length].type(torch.float32)
-  Y = ex_y[samples] #.type(torch.int32)
+  X = ex_x[samples, :max_input_length].to(device='cuda:0', non_blocking=True).type(torch.float32)
+  Y = ex_y[samples].to(device='cuda:0', non_blocking=True)
 
   # 4x downscale in encoder
   input_lengths = [x//4 for x in input_lengths]

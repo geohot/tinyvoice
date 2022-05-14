@@ -36,11 +36,11 @@ class Rec(nn.Module):
       nn.Conv2d(1, C, 1, stride=2),
       nn.ReLU(),
       ResBlock(C),
-      #ResBlock(C),
+      ResBlock(C),
       nn.Conv2d(C, C, 1, stride=2),
       nn.ReLU(),
       ResBlock(C),
-      #ResBlock(C),
+      ResBlock(C),
     )
     self.flatten = nn.Linear(320, H)
     self.gru = nn.GRU(H, H, batch_first=True)
