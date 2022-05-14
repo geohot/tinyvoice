@@ -12,14 +12,14 @@ import torchaudio
 from torch.utils.data import Dataset
 from preprocess import load_example, to_text, CHARSET
 
-def load_data():
+def load_data(dset):
   global ex_x, ex_y
   print("loading data X")
-  ex_x = torch.load('data/lj_x.pt') #, map_location="cuda:0")
+  ex_x = torch.load('data/'+dset+'_x.pt') #, map_location="cuda:0")
   print("copying to GPU", ex_x.shape)
   ex_x = ex_x.to(device="cuda:0", non_blocking=True)
   print("loading data Y")
-  ex_y = torch.load('data/lj_y.pt')
+  ex_y = torch.load('data/'+dset+'_y.pt')
   print("data loaded")
 
 def get_sample(samples):
@@ -29,32 +29,42 @@ def get_sample(samples):
   target_lengths = [len(ex_y[i][2]) for i in samples]
   return input, target, input_lengths, target_lengths
 
+class ResBlock(nn.Module):
+  def __init__(self, c):
+    super().__init__()
+    self.block = nn.Sequential(
+      nn.Conv2d(c, c, 3, padding='same'),
+      nn.BatchNorm2d(c),
+      nn.ReLU(c),
+      nn.Conv2d(c, c, 3, padding='same'),
+      nn.BatchNorm2d(c))
+  
+  def forward(self, x):
+    return nn.functional.relu(x + self.block(x))
+
 class TemporalBatchNorm(nn.Module):
   def __init__(self, channels):
     super().__init__()
     self.bn = nn.BatchNorm1d(channels)
-
   def forward(self, x):
-    # (L, N, C) -> (N, C, L) -> (L, N, C)
     return self.bn(x.permute(1,2,0)).permute(2,0,1)
 
 class Rec(nn.Module):
   def __init__(self):
     super().__init__()
+
+    C = 16 
     H = 256
-    # (L, N, C)
-    self.prepare = nn.Sequential(
-      nn.Linear(80, H),
-      TemporalBatchNorm(H),
-      nn.ReLU(),
-      nn.Linear(H, H),
-      TemporalBatchNorm(H),
-      nn.ReLU(),
-      nn.Linear(H, H),
-      TemporalBatchNorm(H),
-      nn.ReLU())
-    #self.encoder = nn.GRU(H, H//2, batch_first=False, bidirectional=True)
-    self.encoder = nn.GRU(H, H, batch_first=False)
+
+    self.encode = nn.Sequential(
+      nn.Conv2d(1, C, 3, stride=(1,C//2), padding=(1,0)),
+      ResBlock(C),
+      ResBlock(C),
+      ResBlock(C),
+    )
+    self.flatten = nn.Linear(2*80, H)
+
+    self.gru = nn.GRU(H, H, batch_first=False)
     self.decode = nn.Sequential(
       nn.Linear(H, H//2),
       TemporalBatchNorm(H//2),
@@ -67,10 +77,19 @@ class Rec(nn.Module):
     )
 
   def forward(self, x):
-    x = self.prepare(x)
-    x = self.encoder(x)[0]
+    # (time, batch, freq)
+    #print(x.shape)
+    x = x.permute(1,0,2)[:, None] # (time, batch, freq) -> (batch, time, freq)
+    # (batch, C, H, W)
+    x = self.encode(x).permute(2, 0, 1, 3) # (H, batch, C, W)
+    x = x.reshape(x.shape[0], x.shape[1], -1)
+    x = self.flatten(x)
+    x = self.gru(x)[0]
     x = self.decode(x)
     return torch.nn.functional.log_softmax(x, dim=2)
+
+#Rec()(torch.zeros(200, 32, 80))
+#exit(0)
 
 WAN = os.getenv("WAN") != None
 if WAN:
@@ -174,5 +193,6 @@ def train():
       j += 1
 
 if __name__ == "__main__":
-  load_data()
+  #load_data('libri')
+  load_data('lj')
   train()
