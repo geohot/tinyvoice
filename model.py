@@ -22,6 +22,13 @@ class ResBlock(nn.Module):
   def forward(self, x):
     return nn.functional.relu(x + self.block(x))
 
+class TemporalBatchNorm(nn.Module):
+  def __init__(self, channels):
+    super().__init__()
+    self.bn = nn.BatchNorm1d(channels)
+  def forward(self, x):
+    return self.bn(x.permute(0,2,1)).permute(0,2,1)
+
 class Rec(nn.Module):
   def __init__(self):
     super().__init__()
@@ -39,15 +46,18 @@ class Rec(nn.Module):
       ResBlock(C),
       ResBlock(C),
     )
-    self.gru = nn.GRU(H, H, batch_first=False)
+    self.gru = nn.GRU(H, H, batch_first=True)
 
     #H = 80
     #self.conformer = Conformer(80, 4, 128, 4, 31)
     self.decode = nn.Sequential(
       nn.Linear(H, H//2),
+      TemporalBatchNorm(H//2),
       nn.ReLU(),
+      nn.Linear(H//2, H//4),
+      TemporalBatchNorm(H//4),
       nn.Dropout(0.5),
-      nn.Linear(H//2, len(CHARSET))
+      nn.Linear(H//4, len(CHARSET))
     )
 
   def forward(self, x, y):
@@ -55,13 +65,13 @@ class Rec(nn.Module):
     #print(x.shape)
     x = x[:, None] # (batch, time, freq) -> (batch, 1, time, freq)
     # (batch, C, H, W)
-    x = self.encode(x).permute(2, 0, 1, 3) # (H, batch, C, W)
+    x = self.encode(x).permute(0, 2, 1, 3) # (batch, H(time), C, W)
     x = x.reshape(x.shape[0], x.shape[1], -1)
     x = self.gru(x)[0]
     x = self.decode(x)
     #x = self.conformer(x,y)[0].permute(1,0,2)
     #x = self.decode(x)
-    return torch.nn.functional.log_softmax(x, dim=2)
+    return torch.nn.functional.log_softmax(x, dim=2).permute(1,0,2)
 
 
 if __name__ == "__main__":
@@ -72,7 +82,7 @@ if __name__ == "__main__":
 
   target_length = 200
   target = [1]*(batch_size*target_length)
-  input_lengths = [1600]*batch_size
+  input_lengths = [400]*batch_size
   input_lengths[0] -= 1
   target_lengths = [target_length]*batch_size
 
@@ -93,7 +103,7 @@ if __name__ == "__main__":
   def run_model():
     optimizer.zero_grad()
     guess = model(input, input_lengths)
-    #print(guess.shape)
+    #print(guess.shape, input_lengths)
     loss = F.ctc_loss(guess, target, input_lengths, target_lengths)
     #loss = guess.mean()
     loss.backward()

@@ -59,7 +59,7 @@ if WAN:
 def train():
   epochs = 100
   learning_rate = 0.002
-  batch_size = 64
+  batch_size = 32
 
   if WAN:
     wandb.init(project="tinyvoice", entity="geohot")
