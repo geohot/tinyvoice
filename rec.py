@@ -44,11 +44,11 @@ def get_sample(samples, val=False):
   Y = ex_y[samples].to(device='cuda:0', non_blocking=True)
 
   # 4x downscale in encoder
-  input_lengths = [x//4 for x in input_lengths]
+  #input_lengths = [x//4 for x in input_lengths]
 
   # to the GPU
-  #input_lengths = torch.tensor(input_lengths, dtype=torch.int32).cuda()
-  #target_lengths = torch.tensor(target_lengths, dtype=torch.int32).cuda()
+  input_lengths = torch.tensor(input_lengths, dtype=torch.int32, device='cuda:0')
+  target_lengths = torch.tensor(target_lengths, dtype=torch.int32, device='cuda:0')
 
   if not val:
     X = train_audio_transforms(X.permute(0,2,1)).permute(0,2,1)
@@ -60,8 +60,8 @@ if WAN:
 
 def train():
   epochs = 100
-  learning_rate = 0.002
-  batch_size = 64
+  learning_rate = 0.001
+  batch_size = 16
 
   if WAN:
     wandb.init(project="tinyvoice", entity="geohot")
@@ -74,7 +74,7 @@ def train():
   timestamp = int(time.time())
 
   model = Rec().cuda()
-  model.load_state_dict(torch.load('demo/tinyvoice_1652564529_60.pt'))
+  #model.load_state_dict(torch.load('demo/tinyvoice_1652564529_60.pt'))
 
   split = int(ex_x.shape[0]*0.9)
   trains = [x for x in list(range(split))]
@@ -97,7 +97,7 @@ def train():
     with torch.no_grad():
       model.eval()
 
-      mguess = model(single_val[None], [single_val.shape[0]])
+      mguess = model(single_val[None], torch.tensor([single_val.shape[0]], dtype=torch.int32, device='cuda:0'))
       pp = to_text(mguess[:, 0, :].argmax(dim=1).cpu())
       print("VALIDATION", pp)
       if epoch%5 == 0:
