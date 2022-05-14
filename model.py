@@ -26,7 +26,6 @@ class Rec(nn.Module):
   def __init__(self):
     super().__init__()
 
-    """
     C, H = 16, 320
     self.encode = nn.Sequential(
       nn.Conv2d(1, C, 1, stride=2, bias=False),
@@ -41,9 +40,9 @@ class Rec(nn.Module):
       ResBlock(C),
     )
     self.gru = nn.GRU(H, H, batch_first=False)
-    """
-    self.conformer = Conformer(80, 4, 128, 4, 31)
-    H = 80
+
+    #H = 80
+    #self.conformer = Conformer(80, 4, 128, 4, 31)
     self.decode = nn.Sequential(
       nn.Linear(H, H//2),
       nn.ReLU(),
@@ -54,16 +53,14 @@ class Rec(nn.Module):
   def forward(self, x, y):
     # (time, batch, freq)
     #print(x.shape)
-    """
     x = x[:, None] # (batch, time, freq) -> (batch, 1, time, freq)
     # (batch, C, H, W)
     x = self.encode(x).permute(2, 0, 1, 3) # (H, batch, C, W)
     x = x.reshape(x.shape[0], x.shape[1], -1)
     x = self.gru(x)[0]
     x = self.decode(x)
-    """
-    x = self.conformer(x,y)[0].permute(1,0,2)
-    x = self.decode(x)
+    #x = self.conformer(x,y)[0].permute(1,0,2)
+    #x = self.decode(x)
     return torch.nn.functional.log_softmax(x, dim=2)
 
 

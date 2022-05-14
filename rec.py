@@ -35,12 +35,19 @@ train_audio_transforms = nn.Sequential(
 )
 
 def get_sample(samples, val=False):
-  #input_lengths = [meta[i][1]//4 for i in samples]
-  max_input_length = max([meta[i][1] for i in samples])
-  input_lengths = torch.tensor([meta[i][1] for i in samples]).cuda()
-  target_lengths = torch.tensor([meta[i][2] for i in samples]).cuda()
+  input_lengths = [meta[i][1] for i in samples]
+  target_lengths = [meta[i][2] for i in samples]
+  max_input_length = max(input_lengths)
   X = ex_x[samples, :max_input_length].type(torch.float32)
   Y = ex_y[samples] #.type(torch.int32)
+
+  # 4x downscale in encoder
+  input_lengths = [x//4 for x in input_lengths]
+
+  # to the GPU
+  #input_lengths = torch.tensor(input_lengths, dtype=torch.int32).cuda()
+  #target_lengths = torch.tensor(target_lengths, dtype=torch.int32).cuda()
+
   if not val:
     X = train_audio_transforms(X.permute(0,2,1)).permute(0,2,1)
   return X, Y, input_lengths, target_lengths
@@ -52,7 +59,7 @@ if WAN:
 def train():
   epochs = 100
   learning_rate = 0.002
-  batch_size = 32
+  batch_size = 64
 
   if WAN:
     wandb.init(project="tinyvoice", entity="geohot")
