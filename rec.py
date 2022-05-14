@@ -146,7 +146,7 @@ def train():
       mguess = model(single_val[:, None])
       pp = to_text(mguess[:, 0, :].argmax(dim=1).cpu())
       print("VALIDATION", pp)
-      if epoch%5 == 0 and epoch != 0:
+      if epoch%5 == 0:
         torch.save(model.state_dict(), f"models/tinyvoice_{timestamp}_{epoch}.pt")
 
       losses = []
