@@ -56,10 +56,20 @@ def get_sample(samples, data, device, val=False):
 WAN = os.getenv("WAN") != None
 
 def train(rank, world_size, data):
-  print(f"hello from process {rank}/{world_size}")
-  ex_x, ex_y, meta = data
 
-  if WAN and rank == 0:
+  # split dataset
+  ex_x, ex_y, meta = data
+  sz = ex_x.shape[0]
+  sz = sz//world_size
+  offset = rank*sz
+  ex_x = ex_x[offset:sz+offset]
+  ex_y = ex_y[offset:sz+offset]
+  meta = meta[offset:sz+offset]
+  data = ex_x, ex_y, meta
+
+  print(f"hello from process {rank}/{world_size} data {offset}-{offset+sz}")
+
+  if WAN and rank == 1:
     import wandb
     wandb.init(project="tinyvoice", entity="geohot")
 
@@ -77,11 +87,9 @@ def train(rank, world_size, data):
   #model.load_state_dict(torch.load('demo/tinyvoice_1652564529_60.pt'))
 
   sz = ex_x.shape[0]
-  sz = sz//world_size
-  offset = rank*sz
-
-  trains = [x for x in range(offset, offset+sz - batch_size*4)]
-  vals = [x for x in range(offset+sz - batch_size*4, offset+sz)]
+  split = int(sz*0.95)
+  trains = [x for x in range(0, split)]
+  vals = [x for x in range(split, sz)]
   val_batches = np.array(vals)[:len(vals)//batch_size * batch_size].reshape(-1, batch_size)
 
   #optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -92,9 +100,8 @@ def train(rank, world_size, data):
     steps_per_epoch=len(trains)//batch_size, epochs=epochs, anneal_strategy='linear', verbose=False)
 
   single_val = load_example('data/LJ037-0171.wav').to(device)
-
   for epoch in range(epochs):
-    if WAN and rank == 0:
+    if WAN and rank == 1:
       wandb.watch(model)
 
     with torch.no_grad():
@@ -104,7 +111,7 @@ def train(rank, world_size, data):
       pp = to_text(mguess[:, 0, :].argmax(dim=1).cpu())
       print("VALIDATION", pp)
 
-      if epoch%5 == 0 and rank == 0:
+      if epoch%5 == 0 and rank == 1:
         fn = f"models/tinyvoice_{timestamp}_{epoch}.pt"
         print(f"saving model {fn}")
         torch.save(model.state_dict(), fn)
@@ -118,7 +125,7 @@ def train(rank, world_size, data):
       val_loss = torch.mean(torch.tensor(losses)).item()
       print(f"val_loss: {val_loss:.2f}")
 
-    if WAN and rank == 0:
+    if WAN and rank == 1:
       wandb.log({"val_loss": val_loss, "lr": scheduler.get_last_lr()[0]})
 
     random.shuffle(trains)
@@ -146,7 +153,7 @@ def train(rank, world_size, data):
         loss = run_model(sample)
 
       t.set_description(f"epoch: {epoch} loss: {loss.item():.2f} rank: {rank}")
-      if WAN and j%10 == 0 and rank == 0:
+      if WAN and j%10 == 0 and rank == 1:
         wandb.log({"loss": loss})
       j += 1
 
