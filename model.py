@@ -48,7 +48,7 @@ class Rec(nn.Module):
     """
 
     H = 80
-    self.conformer = Conformer(80, 4, 128, 4, 31)
+    self.conformer = Conformer(input_dim=80, num_heads=4, ffn_dim=256, num_layers=16, depthwise_conv_kernel_size=31)
 
     self.decode = nn.Sequential(
       nn.Dropout(0.5),
