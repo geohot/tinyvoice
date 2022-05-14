@@ -48,14 +48,8 @@ class Rec(nn.Module):
     #H = 80
     #self.conformer = Conformer(80, 4, 128, 4, 31)
     self.decode = nn.Sequential(
-      nn.Linear(H, H//2),
-      TemporalBatchNorm(H//2),
-      nn.ReLU(),
-      nn.Linear(H//2, H//4),
-      TemporalBatchNorm(H//4),
-      nn.ReLU(),
       nn.Dropout(0.5),
-      nn.Linear(H//4, len(CHARSET))
+      nn.Linear(H, len(CHARSET))
     )
 
   def forward(self, x, y):

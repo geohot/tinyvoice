@@ -74,7 +74,7 @@ def train():
   timestamp = int(time.time())
 
   model = Rec().cuda()
-  #model.load_state_dict(torch.load('models/tinyvoice_1652557893_30.pt'))
+  model.load_state_dict(torch.load('demo/tinyvoice_1652564529_60.pt'))
 
   split = int(ex_x.shape[0]*0.9)
   trains = [x for x in list(range(split))]
