@@ -12,13 +12,15 @@ import torchaudio
 from torch.utils.data import Dataset
 from preprocess import load_example, to_text, CHARSET
 
-print("loading data X")
-ex_x = torch.load('data/lj_x.pt') #, map_location="cuda:0")
-print("copying to GPU", ex_x.shape)
-ex_x = ex_x.to(device="cuda:0", non_blocking=True)
-print("loading data Y")
-ex_y = torch.load('data/lj_y.pt')
-print("data loaded")
+def load_data():
+  global ex_x, ex_y
+  print("loading data X")
+  ex_x = torch.load('data/lj_x.pt') #, map_location="cuda:0")
+  print("copying to GPU", ex_x.shape)
+  ex_x = ex_x.to(device="cuda:0", non_blocking=True)
+  print("loading data Y")
+  ex_y = torch.load('data/lj_y.pt')
+  print("data loaded")
 
 def get_sample(samples):
   input = ex_x[:, samples]
@@ -172,4 +174,5 @@ def train():
       j += 1
 
 if __name__ == "__main__":
+  load_data()
   train()
