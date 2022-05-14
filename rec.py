@@ -15,17 +15,15 @@ from preprocess import to_text, CHARSET, from_text
 from preprocess_libri import load_example
 from model import Rec
 
+import torch.multiprocessing as mp
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+
 def load_data(dset):
-  global ex_x, ex_y, meta
   print("loading data")
-  ex_x, ex_y, meta = torch.load('data/'+dset+'.pt') #, map_location="cuda:0")
-  """
-  print("copying to GPU", ex_x.shape, ex_x.dtype)
-  ex_x = ex_x.to(device="cuda:0", non_blocking=True)
-  print("copying to GPU", ex_y.shape, ex_y.dtype)
-  ex_y = ex_y.to(device="cuda:0", non_blocking=True)
-  """
+  data = torch.load('data/'+dset+'.pt')
   print("data loaded")
+  return data
 
 # TODO: is this the correct shape? possible we are masking batch?
 # from docs, specgram (Tensor): Tensor of dimension (..., freq, time).
@@ -36,49 +34,54 @@ train_audio_transforms = nn.Sequential(
   torchaudio.transforms.TimeMasking(time_mask_param=35)
 )
 
-def get_sample(samples, val=False):
+def get_sample(samples, data, device, val=False):
+  ex_x, ex_y, meta = data
   input_lengths = [meta[i][1] for i in samples]
   target_lengths = [meta[i][2] for i in samples]
   max_input_length = max(input_lengths)
-  X = ex_x[samples, :max_input_length].to(device='cuda:0', non_blocking=True).type(torch.float32)
-  Y = ex_y[samples].to(device='cuda:0', non_blocking=True)
+  X = ex_x[samples, :max_input_length].to(device=device, non_blocking=True).type(torch.float32)
+  Y = ex_y[samples].to(device=device, non_blocking=True)
 
   # 4x downscale in encoder
   #input_lengths = [x//4 for x in input_lengths]
 
   # to the GPU
-  input_lengths = torch.tensor(input_lengths, dtype=torch.int32, device='cuda:0')
-  target_lengths = torch.tensor(target_lengths, dtype=torch.int32, device='cuda:0')
+  input_lengths = torch.tensor(input_lengths, dtype=torch.int32, device=device)
+  target_lengths = torch.tensor(target_lengths, dtype=torch.int32, device=device)
 
   if not val:
     X = train_audio_transforms(X.permute(0,2,1)).permute(0,2,1)
   return X, Y, input_lengths, target_lengths
 
 WAN = os.getenv("WAN") != None
-if WAN:
-  import wandb
 
-def train():
-  epochs = 100
-  learning_rate = 0.001
-  batch_size = 16
+def train(rank, world_size, data):
+  print(f"hello from process {rank}/{world_size}")
+  ex_x, ex_y, meta = data
 
-  if WAN:
+  if WAN and rank == 0:
+    import wandb
     wandb.init(project="tinyvoice", entity="geohot")
-    wandb.config = {
-      "learning_rate": learning_rate,
-      "epochs": epochs,
-      "batch_size": batch_size
-    }
+
+  dist.init_process_group("nccl", rank=rank, world_size=world_size)
+
+  epochs = 100
+  learning_rate = 0.002
+  batch_size = 8
 
   timestamp = int(time.time())
 
-  model = Rec().cuda()
+  device = f"cuda:{rank}"
+  model = Rec().to(device)
+  model = DDP(model, device_ids=[rank])
   #model.load_state_dict(torch.load('demo/tinyvoice_1652564529_60.pt'))
 
-  split = int(ex_x.shape[0]*0.9)
-  trains = [x for x in list(range(split))]
-  vals = [x for x in range(split, ex_x.shape[0])]
+  sz = ex_x.shape[0]
+  sz = sz//world_size
+  offset = rank*sz
+
+  trains = [x for x in range(offset, offset+sz - batch_size*4)]
+  vals = [x for x in range(offset+sz - batch_size*4, offset+sz)]
   val_batches = np.array(vals)[:len(vals)//batch_size * batch_size].reshape(-1, batch_size)
 
   #optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -88,33 +91,34 @@ def train():
   scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=learning_rate, pct_start=0.2,
     steps_per_epoch=len(trains)//batch_size, epochs=epochs, anneal_strategy='linear', verbose=False)
 
-  single_val = load_example('data/LJ037-0171.wav').cuda()
+  single_val = load_example('data/LJ037-0171.wav').to(device)
 
   for epoch in range(epochs):
-    if WAN:
+    if WAN and rank == 0:
       wandb.watch(model)
 
     with torch.no_grad():
       model.eval()
 
-      mguess = model(single_val[None], torch.tensor([single_val.shape[0]], dtype=torch.int32, device='cuda:0'))
+      mguess = model(single_val[None], torch.tensor([single_val.shape[0]], dtype=torch.int32, device=device))
       pp = to_text(mguess[:, 0, :].argmax(dim=1).cpu())
       print("VALIDATION", pp)
-      if epoch%5 == 0:
+
+      if epoch%5 == 0 and rank == 0:
         fn = f"models/tinyvoice_{timestamp}_{epoch}.pt"
         print(f"saving model {fn}")
         torch.save(model.state_dict(), fn)
 
       losses = []
       for samples in (t:=tqdm(val_batches)):
-        input, target, input_lengths, target_lengths = get_sample(samples, val=True)
+        input, target, input_lengths, target_lengths = get_sample(samples, data, device, val=True)
         guess = model(input, input_lengths)
         loss = F.ctc_loss(guess, target, input_lengths, target_lengths)
         losses.append(loss)
       val_loss = torch.mean(torch.tensor(losses)).item()
       print(f"val_loss: {val_loss:.2f}")
 
-    if WAN:
+    if WAN and rank == 0:
       wandb.log({"val_loss": val_loss, "lr": scheduler.get_last_lr()[0]})
 
     random.shuffle(trains)
@@ -136,17 +140,25 @@ def train():
     for samples in (t:=tqdm(batches)):
       if sample is not None:
         loss = run_model(sample)
-        sample = get_sample(samples)
+        sample = get_sample(samples, data, device)
       else:
-        sample = get_sample(samples)
+        sample = get_sample(samples, data, device)
         loss = run_model(sample)
 
-      t.set_description(f"epoch: {epoch} loss: {loss.item():.2f}")
-      if WAN and j%10 == 0:
+      t.set_description(f"epoch: {epoch} loss: {loss.item():.2f} rank: {rank}")
+      if WAN and j%10 == 0 and rank == 0:
         wandb.log({"loss": loss})
       j += 1
 
 if __name__ == "__main__":
-  load_data('libri')
+  data = load_data('libri')
   #load_data('lj')
-  train()
+  world_size = 8
+
+  os.environ['MASTER_ADDR'] = 'localhost'
+  os.environ['MASTER_PORT'] = '12355'
+  mp.spawn(train,
+           args=(world_size,data),
+           nprocs=world_size,
+           join=True)
+
