@@ -68,6 +68,8 @@ def train(rank, world_size, data):
   data = ex_x, ex_y, meta
 
   print(f"hello from process {rank}/{world_size} data {offset}-{offset+sz}")
+  #torch.cuda.set_device(rank)
+  #torch.cuda.empty_cache()
 
   if WAN and rank == 1:
     import wandb
