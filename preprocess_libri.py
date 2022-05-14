@@ -20,7 +20,8 @@ def load_example(x):
     hop_length = int(sample_rate/(1000/MS_PER_SAMPLE))
     mel_transform[sample_rate] = torchaudio.transforms.MelSpectrogram(sample_rate, n_fft=hop_length*4, win_length=hop_length*4, hop_length=hop_length, n_mels=80)
   mel_specgram = mel_transform[sample_rate](waveform)
-  return torch.log10(mel_specgram[0].T)
+  return mel_specgram[0].T
+  #return torch.log10(mel_specgram[0].T)
 
 def proc(xy):
   x,y = xy
@@ -45,8 +46,7 @@ if __name__ == "__main__":
           y = meta[dll[:-5]]
           dispatch.append((x,y))
 
-  dispatch = dispatch[0:1000]
-
+  #dispatch = dispatch[0:1000]
   ex_x, ex_y, ameta = [], [], []
   with Pool(processes=32) as pool:
     #for ex,ey,meta in tqdm(map(proc, dispatch), total=len(dispatch)):

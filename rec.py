@@ -5,6 +5,7 @@ import csv
 import torch
 import random
 from tqdm.auto import tqdm
+import torch.nn.functional as F
 from torch import log_softmax, nn
 import torch.optim as optim
 import numpy as np
@@ -24,11 +25,22 @@ def load_data(dset):
   ex_y = ex_y.to(device="cuda:0", non_blocking=True)
   print("data loaded")
 
-def get_sample(samples):
+# TODO: is this the correct shape? possible we are masking batch?
+# from docs, specgram (Tensor): Tensor of dimension (..., freq, time).
+train_audio_transforms = nn.Sequential(
+  # 80 is the full thing
+  torchaudio.transforms.FrequencyMasking(freq_mask_param=15),
+  # 256 is the hop size, so 86 is one second
+  torchaudio.transforms.TimeMasking(time_mask_param=35)
+)
+
+def get_sample(samples, val=False):
   X = ex_x[samples].type(torch.float32)
-  Y = ex_y[samples].type(torch.int32)
+  Y = ex_y[samples] #.type(torch.int32)
   input_lengths = [meta[i][1]//4 for i in samples]
   target_lengths = [meta[i][2] for i in samples]
+  if not val:
+    X = train_audio_transforms(X.permute(0,2,1)).permute(0,2,1)
   return X, Y, input_lengths, target_lengths
 
 WAN = os.getenv("WAN") != None
@@ -49,13 +61,12 @@ def train():
     }
 
   timestamp = int(time.time())
-  ctc_loss = nn.CTCLoss().cuda()
   model = Rec().cuda()
   #model.load_state_dict(torch.load('models/tinyvoice_1652479269_25.pt'))
 
   split = int(ex_x.shape[0]*0.9)
-  trains = [x for x in list(range(split))*2]
-  vals = [x for x in range(split, ex_x.shape[1])]
+  trains = [x for x in list(range(split))]
+  vals = [x for x in range(split, ex_x.shape[0])]
   val_batches = np.array(vals)[:len(vals)//batch_size * batch_size].reshape(-1, batch_size)
 
   optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -66,15 +77,6 @@ def train():
     steps_per_epoch=len(trains)//batch_size, epochs=epochs, anneal_strategy='linear', verbose=False)
 
   single_val = load_example('data/LJ037-0171.wav').cuda()
-
-  # TODO: is this the correct shape? possible we are masking batch?
-  # from docs, specgram (Tensor): Tensor of dimension (..., freq, time).
-  train_audio_transforms = nn.Sequential(
-    # 80 is the full thing
-    torchaudio.transforms.FrequencyMasking(freq_mask_param=15),
-    # 256 is the hop size, so 86 is one second
-    torchaudio.transforms.TimeMasking(time_mask_param=35)
-  )
 
   for epoch in range(epochs):
     if WAN:
@@ -89,17 +91,14 @@ def train():
       if epoch%5 == 0:
         torch.save(model.state_dict(), f"models/tinyvoice_{timestamp}_{epoch}.pt")
 
-      """
       losses = []
       for samples in (t:=tqdm(val_batches)):
-        input, target, input_lengths, target_lengths = get_sample(samples)
+        input, target, input_lengths, target_lengths = get_sample(samples, val=True)
         guess = model(input)
-        loss = ctc_loss(guess, target, input_lengths, target_lengths)
-        #print(loss)
+        loss = F.ctc_loss(guess, target, input_lengths, target_lengths)
         losses.append(loss)
       val_loss = torch.mean(torch.tensor(losses)).item()
       print(f"val_loss: {val_loss:.2f}")
-      """
 
     if WAN:
       wandb.log({"val_loss": val_loss, "lr": scheduler.get_last_lr()[0]})
@@ -108,24 +107,25 @@ def train():
     model.train()
     batches = np.array(trains)[:len(trains)//batch_size * batch_size].reshape(-1, batch_size)
     j = 0
-    for samples in (t:=tqdm(batches)):
-      input, target, input_lengths, target_lengths = get_sample(samples)
-      # input is (batch, time, freq) -> (batch, freq, time)
-      input = train_audio_transforms(input.permute(0,2,1)).permute(0,2,1)
 
+    def run_model(samples):
+      input, target, input_lengths, target_lengths = samples
       optimizer.zero_grad()
       guess = model(input)
-
-      """
-      pp = to_text(guess[:, 0, :].argmax(dim=1).cpu())
-      if len(pp) > 0:
-        print(pp)
-      """
-
-      loss = ctc_loss(guess, target, input_lengths, target_lengths)
+      loss = F.ctc_loss(guess, target, input_lengths, target_lengths)
       loss.backward()
       optimizer.step()
       scheduler.step()
+      return loss
+
+    sample = None
+    for samples in (t:=tqdm(batches)):
+      if sample is not None:
+        loss = run_model(sample)
+        sample = get_sample(samples)
+      else:
+        sample = get_sample(samples)
+        loss = run_model(sample)
 
       t.set_description(f"epoch: {epoch} loss: {loss.item():.2f}")
       if WAN and j%10 == 0:

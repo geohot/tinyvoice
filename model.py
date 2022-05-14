@@ -2,6 +2,7 @@
 import time
 import torch
 from torch import nn
+import torch.nn.functional as F
 from preprocess import CHARSET
 import torch.optim as optim
 
@@ -32,11 +33,13 @@ class Rec(nn.Module):
     C, H = 16, 256
     self.encode = nn.Sequential(
       nn.Conv2d(1, C, 1, stride=2),
+      nn.ReLU(),
       ResBlock(C),
-      ResBlock(C),
+      #ResBlock(C),
       nn.Conv2d(C, C, 1, stride=2),
+      nn.ReLU(),
       ResBlock(C),
-      ResBlock(C),
+      #ResBlock(C),
     )
     self.flatten = nn.Linear(320, H)
 
@@ -66,32 +69,53 @@ class Rec(nn.Module):
 
 if __name__ == "__main__":
   batch_size = 32
-  learning_rate = 0.002
+  learning_rate = 0.001
 
   target_length = 200
   target = [1]*(batch_size*target_length)
-  input_lengths = [999//4]*batch_size
+  input_lengths = [400]*batch_size
   target_lengths = [target_length]*batch_size
 
-  ctc_loss = nn.CTCLoss().cuda()
+  input_lengths = torch.tensor(input_lengths).cuda()
+  target_lengths = torch.tensor(target_lengths).cuda()
+
+  #ctc_loss = nn.CTCLoss().cuda()
   model = Rec().cuda()
   optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-  input = torch.zeros(1000, batch_size, 80, device='cuda:0')
-  target = torch.tensor(target, dtype=torch.int32, device='cuda:0')
+  input = torch.zeros(batch_size, 1600, 80, device='cuda:0', dtype=torch.float32)
+  #target = torch.ones(batch_size*target_length, device='cuda:0', dtype=torch.int32)
+  target = torch.ones(batch_size*target_length, dtype=torch.int32)
 
-  for i in range(10):
-    st = time.monotonic()
+  def run_model():
     optimizer.zero_grad()
     guess = model(input)
-    #print(guess.shape, guess.device, guess.dtype)
-    #print(target.shape, target.device, target.dtype)
-
-    loss = ctc_loss(guess, target, input_lengths, target_lengths)
+    print(guess.shape)
+    loss = F.ctc_loss(guess, target, input_lengths, target_lengths)
     loss.backward()
     optimizer.step()
+    return loss
+
+  """
+  s = torch.cuda.Stream()
+  s.wait_stream(torch.cuda.current_stream())
+  with torch.cuda.stream(s):
+    for _ in range(10):
+      loss = run_model()
+  torch.cuda.current_stream().wait_stream(s)
+
+  g = torch.cuda.CUDAGraph()
+  with torch.cuda.graph(g):
+    loss = run_model()
+  """
+
+  for i in range(30):
+    st = time.monotonic()
+    #g.replay()
+    loss = run_model()
+    rloss = loss.item()
     et = time.monotonic() - st
-    print(f"{et*1000:.2f} ms  {1/et:.2f} its/sec")
+    print(f"{et*1000:.2f} ms  {1/et:.2f} its/sec {rloss}")
 
 
   #exit(0)
