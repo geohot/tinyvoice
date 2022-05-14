@@ -62,7 +62,7 @@ def train():
 
   timestamp = int(time.time())
   model = Rec().cuda()
-  #model.load_state_dict(torch.load('models/tinyvoice_1652479269_25.pt'))
+  model.load_state_dict(torch.load('models/tinyvoice_1652557893_30.pt'))
 
   split = int(ex_x.shape[0]*0.9)
   trains = [x for x in list(range(split))]
@@ -85,7 +85,7 @@ def train():
     with torch.no_grad():
       model.eval()
 
-      mguess = model(single_val[:, None])
+      mguess = model(single_val[None])
       pp = to_text(mguess[:, 0, :].argmax(dim=1).cpu())
       print("VALIDATION", pp)
       if epoch%5 == 0:
