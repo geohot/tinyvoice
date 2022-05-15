@@ -81,13 +81,13 @@ if __name__ == "__main__":
 
   #dispatch = dispatch[0:1000]
   ex_x, ex_y, ameta = [], [], []
-  with Pool(processes=32) as pool:
+  with Pool(processes=8) as pool:
     #for ex,ey,meta in tqdm(map(proc, dispatch), total=len(dispatch)):
-    for ex,ey,meta in tqdm(pool.imap_unordered(proc, dispatch), total=len(dispatch)):
+    for ex,ey,meta in tqdm(pool.imap(proc, dispatch, chunksize=100), total=len(dispatch)):
       if ex is not None:
-        ex_x.append(ex)
-        ex_y.append(ey)
+        ex_x.append(ex.clone().type(torch.float16))
+        ex_y.append(ey.clone().type(torch.uint8))
         ameta.append(meta)
-  sequences_padded = torch.nn.utils.rnn.pad_sequence(ex_x, batch_first=True).type(torch.float16)
-  ys_padded = torch.nn.utils.rnn.pad_sequence(ex_y, batch_first=True).type(torch.uint8)
+  sequences_padded = torch.nn.utils.rnn.pad_sequence(ex_x, batch_first=True)
+  ys_padded = torch.nn.utils.rnn.pad_sequence(ex_y, batch_first=True)
   torch.save([sequences_padded, ys_padded, ameta], "data/data.pt")
