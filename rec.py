@@ -77,9 +77,9 @@ def train(rank, world_size, data):
   if world_size > 1:
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
-  epochs = 100
+  epochs = 200
   learning_rate = 0.002
-  batch_size = 64//world_size
+  batch_size = 256//world_size
 
   timestamp = int(time.time())
 
@@ -168,7 +168,6 @@ def train(rank, world_size, data):
 if __name__ == "__main__":
   data = load_data('data')
 
-  """
   #load_data('lj')
   world_size = 8
 
@@ -178,5 +177,4 @@ if __name__ == "__main__":
            args=(world_size,data),
            nprocs=world_size,
            join=True)
-  """
-  train(0, 1, data)
+  #train(0, 1, data)
