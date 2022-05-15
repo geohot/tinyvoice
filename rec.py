@@ -11,8 +11,7 @@ import torch.optim as optim
 import numpy as np
 import torchaudio
 from torch.utils.data import Dataset
-from preprocess import to_text, CHARSET, from_text
-from preprocess_libri import load_example
+from preprocess import to_text, CHARSET, from_text, load_example
 from model import Rec
 
 import torch.multiprocessing as mp
@@ -43,7 +42,7 @@ def get_sample(samples, data, device, val=False):
   Y = ex_y[samples].to(device=device, non_blocking=True)
 
   # 4x downscale in encoder
-  #input_lengths = [x//4 for x in input_lengths]
+  #input_lengths = [fix_dim(x) for x in input_lengths]
 
   # to the GPU
   input_lengths = torch.tensor(input_lengths, dtype=torch.int32, device=device)
@@ -71,22 +70,24 @@ def train(rank, world_size, data):
   torch.cuda.set_device(rank)
   torch.cuda.empty_cache()
 
-  if WAN and rank == 1:
+  if WAN and rank == 0:
     import wandb
     wandb.init(project="tinyvoice", entity="geohot")
 
-  dist.init_process_group("nccl", rank=rank, world_size=world_size)
+  if world_size > 1:
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
   epochs = 100
   learning_rate = 0.0005
-  batch_size = 8
+  batch_size = 32 
 
   timestamp = int(time.time())
 
   device = f"cuda:{rank}"
   model = Rec().to(device)
-  model = DDP(model, device_ids=[rank])
-  model.load_state_dict(torch.load('demo/tinyvoice_1652571052_95.pt'))
+  if world_size > 1:
+    model = DDP(model, device_ids=[rank])
+  #model.load_state_dict(torch.load('demo/tinyvoice_1652571052_95.pt'))
 
   sz = ex_x.shape[0]
   split = int(sz*0.95)
@@ -103,17 +104,17 @@ def train(rank, world_size, data):
 
   single_val = load_example('data/LJ037-0171.wav').to(device)
   for epoch in range(epochs):
-    if WAN and rank == 1:
+    if WAN and rank == 0:
       wandb.watch(model)
 
     with torch.no_grad():
       model.eval()
 
-      mguess = model(single_val[None], torch.tensor([single_val.shape[0]], dtype=torch.int32, device=device))
+      mguess, _ = model(single_val[None], torch.tensor([single_val.shape[0]], dtype=torch.int32, device=device))
       pp = to_text(mguess[:, 0, :].argmax(dim=1).cpu())
       print("VALIDATION", pp)
 
-      if epoch%5 == 0 and rank == 1:
+      if epoch%5 == 0 and rank == 0:
         fn = f"models/tinyvoice_{timestamp}_{epoch}.pt"
         print(f"saving model {fn}")
         torch.save(model.state_dict(), fn)
@@ -121,8 +122,8 @@ def train(rank, world_size, data):
       losses = []
       for samples in (t:=tqdm(val_batches)):
         input, target, input_lengths, target_lengths = get_sample(samples, data, device, val=True)
-        guess = model(input, input_lengths)
-        loss = F.ctc_loss(guess, target, input_lengths, target_lengths)
+        guess, input_lengths_mod = model(input, input_lengths)
+        loss = F.ctc_loss(guess, target, input_lengths_mod, target_lengths, zero_infinity=True)
         losses.append(loss)
       val_loss = torch.mean(torch.tensor(losses)).item()
       print(f"val_loss: {val_loss:.2f}")
@@ -138,8 +139,8 @@ def train(rank, world_size, data):
     def run_model(samples):
       input, target, input_lengths, target_lengths = samples
       optimizer.zero_grad()
-      guess = model(input, input_lengths)
-      loss = F.ctc_loss(guess, target, input_lengths, target_lengths)
+      guess, input_lengths_mod = model(input, input_lengths)
+      loss = F.ctc_loss(guess, target, input_lengths_mod, target_lengths)
       loss.backward()
       optimizer.step()
       scheduler.step()
@@ -155,12 +156,14 @@ def train(rank, world_size, data):
         loss = run_model(sample)
 
       t.set_description(f"epoch: {epoch} loss: {loss.item():.2f} rank: {rank}")
-      if WAN and j%10 == 0 and rank == 1:
+      if WAN and j%10 == 0 and rank == 0:
         wandb.log({"loss": loss})
       j += 1
 
 if __name__ == "__main__":
-  data = load_data('libri')
+  data = load_data('data')
+
+  """
   #load_data('lj')
   world_size = 8
 
@@ -170,4 +173,5 @@ if __name__ == "__main__":
            args=(world_size,data),
            nprocs=world_size,
            join=True)
-
+  """
+  train(0, 1, data)

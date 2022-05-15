@@ -47,8 +47,15 @@ class Rec(nn.Module):
     self.gru = nn.GRU(H, H, batch_first=True)
     """
 
-    H = 80
-    self.conformer = Conformer(input_dim=80, num_heads=4, ffn_dim=256, num_layers=12, depthwise_conv_kernel_size=31)
+    self.encode = nn.Sequential(
+      nn.Conv2d(1, 8, kernel_size=3, stride=2),
+      nn.ReLU(),
+      nn.Conv2d(8, 8, kernel_size=3, stride=2),
+      nn.ReLU(),
+    )
+
+    H = (80//4 - 1)*8
+    self.conformer = Conformer(input_dim=H, num_heads=4, ffn_dim=256, num_layers=12, depthwise_conv_kernel_size=31)
 
     self.decode = nn.Sequential(
       nn.Dropout(0.5),
@@ -66,10 +73,15 @@ class Rec(nn.Module):
     x = self.flatten(x)
     x = self.gru(x)[0]
     """
-    x = self.conformer(x, y)[0]
+    x = self.encode(x[:, None])
+    x = x.permute(0, 2, 1, 3)
+    x = x.reshape(x.shape[0], x.shape[1], -1)
+    y = (y>>2)-1
+    x = x[:, :torch.max(y)] # might clip last conv feature
+    x,zz = self.conformer(x, y)
     x = self.decode(x)
     #x = self.decode(x)
-    return torch.nn.functional.log_softmax(x, dim=2).permute(1,0,2)
+    return torch.nn.functional.log_softmax(x, dim=2).permute(1,0,2), zz
 
 
 if __name__ == "__main__":
