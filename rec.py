@@ -79,7 +79,7 @@ def train(rank, world_size, data):
 
   epochs = 100
   learning_rate = 0.0005
-  batch_size = 32 
+  batch_size = 32
 
   timestamp = int(time.time())
 
@@ -140,7 +140,7 @@ def train(rank, world_size, data):
       input, target, input_lengths, target_lengths = samples
       optimizer.zero_grad()
       guess, input_lengths_mod = model(input, input_lengths)
-      loss = F.ctc_loss(guess, target, input_lengths_mod, target_lengths)
+      loss = F.ctc_loss(guess, target, input_lengths_mod, target_lengths, zero_infinity=True)
       loss.backward()
       optimizer.step()
       scheduler.step()

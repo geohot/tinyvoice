@@ -54,8 +54,12 @@ class Rec(nn.Module):
       nn.ReLU(),
     )
 
-    H = (80//4 - 1)*8
-    self.conformer = Conformer(input_dim=H, num_heads=4, ffn_dim=256, num_layers=12, depthwise_conv_kernel_size=31)
+    H = 80
+    self.linear = nn.Sequential(
+      nn.Linear((80//4 - 1)*8, H),
+      nn.Dropout(0.1),
+    )
+    self.conformer = Conformer(input_dim=H, num_heads=4, ffn_dim=H*4, num_layers=12, depthwise_conv_kernel_size=31)
 
     self.decode = nn.Sequential(
       nn.Dropout(0.5),
@@ -78,6 +82,7 @@ class Rec(nn.Module):
     x = x.reshape(x.shape[0], x.shape[1], -1)
     y = (y>>2)-1
     x = x[:, :torch.max(y)] # might clip last conv feature
+    x = self.linear(x)
     x,zz = self.conformer(x, y)
     x = self.decode(x)
     #x = self.decode(x)
