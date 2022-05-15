@@ -78,7 +78,7 @@ def train(rank, world_size, data):
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
   epochs = 100
-  learning_rate = 0.0005
+  learning_rate = 0.001
   batch_size = 32
 
   timestamp = int(time.time())
@@ -116,8 +116,8 @@ def train(rank, world_size, data):
 
       if epoch%5 == 0 and rank == 0:
         fn = f"models/tinyvoice_{timestamp}_{epoch}.pt"
-        print(f"saving model {fn}")
         torch.save(model.state_dict(), fn)
+        print(f"saved model {fn} with size {os.path.getsize(fn)}")
 
       losses = []
       for samples in (t:=tqdm(val_batches)):
