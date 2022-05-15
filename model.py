@@ -47,16 +47,17 @@ class Rec(nn.Module):
     self.gru = nn.GRU(H, H, batch_first=True)
     """
 
+    C = 64
     self.encode = nn.Sequential(
-      nn.Conv2d(1, 8, kernel_size=3, stride=2),
+      nn.Conv2d(1, C, kernel_size=3, stride=2),
       nn.ReLU(),
-      nn.Conv2d(8, 8, kernel_size=3, stride=2),
+      nn.Conv2d(C, C, kernel_size=3, stride=2),
       nn.ReLU(),
     )
 
     H = 80
     self.linear = nn.Sequential(
-      nn.Linear((80//4 - 1)*8, H),
+      nn.Linear(C*(((H - 1) // 2 - 1) // 2), H),
       nn.Dropout(0.1),
     )
     self.conformer = Conformer(input_dim=H, num_heads=4, ffn_dim=H*4, num_layers=12, depthwise_conv_kernel_size=31)
