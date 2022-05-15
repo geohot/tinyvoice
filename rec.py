@@ -128,7 +128,7 @@ def train(rank, world_size, data):
       val_loss = torch.mean(torch.tensor(losses)).item()
       print(f"val_loss: {val_loss:.2f}")
 
-    if WAN and rank == 1:
+    if WAN and rank == 0:
       wandb.log({"val_loss": val_loss, "lr": scheduler.get_last_lr()[0]})
 
     random.shuffle(trains)
