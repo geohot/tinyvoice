@@ -78,7 +78,7 @@ def train(rank, world_size, data):
   dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
   epochs = 100
-  learning_rate = 0.002
+  learning_rate = 0.0005
   batch_size = 8
 
   timestamp = int(time.time())
@@ -86,7 +86,7 @@ def train(rank, world_size, data):
   device = f"cuda:{rank}"
   model = Rec().to(device)
   model = DDP(model, device_ids=[rank])
-  #model.load_state_dict(torch.load('demo/tinyvoice_1652564529_60.pt'))
+  model.load_state_dict(torch.load('demo/tinyvoice_1652571052_95.pt'))
 
   sz = ex_x.shape[0]
   split = int(sz*0.95)
