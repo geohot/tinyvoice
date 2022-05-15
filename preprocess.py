@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 import os
+os.environ['OMP_NUM_THREADS'] = '1'
+
+import random
 import functools
-#import torchaudio
 import csv
 from tqdm.auto import tqdm
 import torch
+from multiprocessing import Pool
 
 CHARSET = " abcdefghijklmnopqrstuvwxyz,.'"
-DATASET = "/raid/ljspeech/LJSpeech-1.1"
-SAMPLE_RATE = 22050
-XMAX = 870    # about 10 seconds
-YMAX = 150
+XMAX = 1600
+YMAX = 250
+MS_PER_SAMPLE = 10
 
 import itertools
 def to_text(x):
@@ -20,35 +22,72 @@ def to_text(x):
 def from_text(x):
   return [CHARSET.index(c)+1 for c in x.lower() if c in CHARSET]
 
-@functools.lru_cache(None)
-def get_metadata():
+mel_transform = {}
+def load_example(x):
+  import torchaudio
+  waveform, sample_rate = torchaudio.load(x, normalize=True)
+  if sample_rate not in mel_transform:
+    hop_length = int(sample_rate/(1000/MS_PER_SAMPLE))
+    mel_transform[sample_rate] = torchaudio.transforms.MelSpectrogram(sample_rate, n_fft=hop_length*4, win_length=hop_length*4, hop_length=hop_length, n_mels=80)
+  mel_specgram = mel_transform[sample_rate](waveform)
+  return mel_specgram[0].T
+  #return torch.log10(mel_specgram[0].T)
+
+def proc(xy):
+  x,y = xy
+  ex = load_example(x)
+  ey = torch.tensor(from_text(y), dtype=torch.uint8)
+  if ex.shape[0] < XMAX and len(ey) < YMAX:
+    return ex, ey, (x, ex.shape[0], len(ey))
+  else:
+    return None, None, None
+
+def get_librespeech(dirr):
+  dispatch = []
+  DATASET = "/raid/ljspeech/LibriSpeech"
+  for d in tqdm(os.listdir(os.path.join(DATASET, dirr,))):
+    for dl in os.listdir(os.path.join(DATASET, dirr, d)):
+      meta = os.path.join(DATASET, dirr, d, dl, f"{d}-{dl}.trans.txt")
+      meta = open(meta).read().strip().split("\n")
+      meta = dict([x.split(" ", 1) for x in meta])
+
+      for dll in os.listdir(os.path.join(DATASET, dirr, d, dl)):
+        x = os.path.join(DATASET, dirr, d, dl, dll)
+        if x.endswith(".flac"):
+          y = meta[dll[:-5]]
+          dispatch.append((x,y))
+  return dispatch
+
+def get_ljspeech():
+  DATASET = "/raid/ljspeech/LJSpeech-1.1"
   ret = []
   with open(os.path.join(DATASET, 'metadata.csv'), newline='') as csvfile:
     reader = csv.reader(csvfile, delimiter='|')
     for row in reader:
-      answer = from_text(row[1])
-      if len(answer) <= YMAX:
-        ret.append((os.path.join(DATASET, 'wavs', row[0]+".wav"), answer))
+      ret.append((os.path.join(DATASET, 'wavs', row[0]+".wav"), row[1]))
   return ret
 
-#mel_transform = torchaudio.transforms.MelSpectrogram(SAMPLE_RATE, n_fft=1024, win_length=1024, hop_length=256, n_mels=80)
-def load_example(x):
-  waveform, sample_rate = torchaudio.load(x, normalize=True)
-  assert(sample_rate == SAMPLE_RATE)
-  mel_specgram = mel_transform(waveform)
-  #return 10*torch.log10(mel_specgram[0]).T
-  return mel_specgram[0].T
-
 if __name__ == "__main__":
-  meta = get_metadata() #[0:1000]
-  ex_x, ex_y = [], []
-  for x,y in tqdm(meta):
-    ex = load_example(x)
-    ex_x.append(ex)
-    ex_y.append((x, ex.shape[0], y))
+  dispatch = []
+  dispatch += get_librespeech("train-clean-100")
+  print(f"got {len(dispatch)}")
+  dispatch += get_librespeech("test-clean")
+  print(f"got {len(dispatch)}")
+  dispatch += get_ljspeech()
+  print(f"got {len(dispatch)}")
 
-  sequences_padded = torch.nn.utils.rnn.pad_sequence(ex_x, batch_first=False) #.type(torch.float16)
-  print(sequences_padded.shape, sequences_padded.dtype)
-  print(ex_y[0])
-  torch.save(sequences_padded, "data/lj_x.pt")
-  torch.save(ex_y, "data/lj_y.pt")
+  random.seed(1337)
+  random.shuffle(dispatch)
+
+  #dispatch = dispatch[0:1000]
+  ex_x, ex_y, ameta = [], [], []
+  with Pool(processes=32) as pool:
+    #for ex,ey,meta in tqdm(map(proc, dispatch), total=len(dispatch)):
+    for ex,ey,meta in tqdm(pool.imap_unordered(proc, dispatch), total=len(dispatch)):
+      if ex is not None:
+        ex_x.append(ex)
+        ex_y.append(ey)
+        ameta.append(meta)
+  sequences_padded = torch.nn.utils.rnn.pad_sequence(ex_x, batch_first=True).type(torch.float16)
+  ys_padded = torch.nn.utils.rnn.pad_sequence(ex_y, batch_first=True).type(torch.uint8)
+  torch.save([sequences_padded, ys_padded, ameta], "data/data.pt")
