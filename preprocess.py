@@ -92,4 +92,5 @@ if __name__ == "__main__":
         ameta.append(meta)
   sequences_padded = torch.nn.utils.rnn.pad_sequence(ex_x, batch_first=True)
   ys_padded = torch.nn.utils.rnn.pad_sequence(ex_y, batch_first=True)
-  torch.save([sequences_padded, ys_padded, ameta], "data/data.pt")
+  torch.save([sequences_padded, ys_padded, ameta], "data/data_big.pt")
+

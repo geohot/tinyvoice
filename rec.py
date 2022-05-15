@@ -90,7 +90,7 @@ def train(rank, world_size, data):
   #model.load_state_dict(torch.load('demo/tinyvoice_1652571052_95.pt'))
 
   sz = ex_x.shape[0]
-  split = int(sz*0.95)
+  split = int(sz*0.97)
   trains = [x for x in range(0, split)]
   vals = [x for x in range(split, sz)]
   val_batches = np.array(vals)[:len(vals)//batch_size * batch_size].reshape(-1, batch_size)
@@ -166,7 +166,7 @@ def train(rank, world_size, data):
       j += 1
 
 if __name__ == "__main__":
-  data = load_data('data')
+  data = load_data('data_big')
 
   #load_data('lj')
   world_size = 8
