@@ -116,7 +116,7 @@ def train(rank, world_size, data):
       print("VALIDATION", pp)
 
       epoch_time = time.monotonic()-last
-      print(f"epoch {epoch-1} took {epoch_time} s, train in {epoch_time*epochs//60} min, done in {epoch_time*(epochs-epoch)//60} min")
+      print(f"epoch {epoch-1} took {epoch_time:.2f} s, train in {epoch_time*epochs//60} min, done in {epoch_time*(epochs-epoch)//60} min")
       last = time.monotonic()
 
       losses = []

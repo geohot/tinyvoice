@@ -57,7 +57,7 @@ class Rec(nn.Module):
 
     H = 80
     self.linear = nn.Sequential(
-      nn.Linear(C*(((H - 1) // 2 - 1) // 2), H),
+      nn.Linear(C*(((80 - 1) // 2 - 1) // 2), H),
       nn.Dropout(0.1),
     )
     self.conformer = Conformer(input_dim=H, num_heads=4, ffn_dim=H*4, num_layers=12, depthwise_conv_kernel_size=31)
@@ -86,7 +86,6 @@ class Rec(nn.Module):
     x = self.linear(x)
     x,zz = self.conformer(x, y)
     x = self.decode(x)
-    #x = self.decode(x)
     return torch.nn.functional.log_softmax(x, dim=2).permute(1,0,2), zz
 
 
