@@ -71,6 +71,8 @@ if __name__ == "__main__":
   dispatch = []
   dispatch += get_librespeech("train-clean-100")
   print(f"got {len(dispatch)}")
+  dispatch += get_librespeech("train-clean-360")
+  print(f"got {len(dispatch)}")
   dispatch += get_librespeech("test-clean")
   print(f"got {len(dispatch)}")
   dispatch += get_ljspeech()

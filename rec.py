@@ -128,7 +128,7 @@ def train(rank, world_size, data):
       val_loss = torch.mean(torch.tensor(losses)).item()
       print(f"val_loss: {val_loss:.2f}")
 
-      if (epoch%5 == 0 or epoch == 99) and rank == 0:
+      if (epoch%5 == 0 or epoch == epochs-1) and rank == 0:
         fn = f"models/tinyvoice_{timestamp}_{epoch}_{val_loss:.2f}.pt"
         torch.save(model.state_dict(), fn)
         print(f"saved model {fn} with size {os.path.getsize(fn)}")
