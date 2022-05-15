@@ -103,6 +103,7 @@ def train(rank, world_size, data):
     steps_per_epoch=len(trains)//batch_size, epochs=epochs, anneal_strategy='linear', verbose=False)
 
   single_val = load_example('data/LJ037-0171.wav').to(device)
+  last = time.monotonic()
   for epoch in range(epochs):
     if WAN and rank == 0:
       wandb.watch(model)
@@ -114,10 +115,9 @@ def train(rank, world_size, data):
       pp = to_text(mguess[:, 0, :].argmax(dim=1).cpu())
       print("VALIDATION", pp)
 
-      if epoch%5 == 0 and rank == 0:
-        fn = f"models/tinyvoice_{timestamp}_{epoch}.pt"
-        torch.save(model.state_dict(), fn)
-        print(f"saved model {fn} with size {os.path.getsize(fn)}")
+      epoch_time = time.monotonic()-last
+      print(f"epoch {epoch-1} took {epoch_time} s, train in {epoch_time*epochs//60} min, done in {epoch_time*(epochs-epoch)//60} min")
+      last = time.monotonic()
 
       losses = []
       for samples in (t:=tqdm(val_batches)):
@@ -127,6 +127,11 @@ def train(rank, world_size, data):
         losses.append(loss)
       val_loss = torch.mean(torch.tensor(losses)).item()
       print(f"val_loss: {val_loss:.2f}")
+
+      if (epoch%5 == 0 or epoch == 99) and rank == 0:
+        fn = f"models/tinyvoice_{timestamp}_{epoch}_{val_loss:.2f}.pt"
+        torch.save(model.state_dict(), fn)
+        print(f"saved model {fn} with size {os.path.getsize(fn)}")
 
     if WAN and rank == 0:
       wandb.log({"val_loss": val_loss, "lr": scheduler.get_last_lr()[0]})
