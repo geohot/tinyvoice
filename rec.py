@@ -79,7 +79,7 @@ def train(rank, world_size, data):
 
   epochs = 100
   learning_rate = 0.002
-  batch_size = 64
+  batch_size = 64//world_size
 
   timestamp = int(time.time())
 
