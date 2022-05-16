@@ -78,8 +78,11 @@ def train(rank, world_size, data):
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
   epochs = 200
-  learning_rate = 0.002
-  batch_size = 256//world_size
+  #learning_rate = 0.002
+  #batch_size = 256//world_size
+
+  learning_rate = 0.0005
+  batch_size = 48//world_size
 
   timestamp = int(time.time())
 
@@ -87,7 +90,10 @@ def train(rank, world_size, data):
   model = Rec().to(device)
   if world_size > 1:
     model = DDP(model, device_ids=[rank])
-  #model.load_state_dict(torch.load('demo/tinyvoice_1652571052_95.pt'))
+  state_dict = torch.load('demo/tinyvoice_1652627131_165_0.11.pt')
+  del state_dict['module.decode.1.weight']
+  del state_dict['module.decode.1.bias']
+  model.load_state_dict(state_dict, strict=False)
 
   sz = ex_x.shape[0]
   split = int(sz*0.97)
@@ -166,10 +172,19 @@ def train(rank, world_size, data):
       j += 1
 
 if __name__ == "__main__":
-  data = load_data('data_big')
+  data = load_data('data')
+  #data = load_data('data_big')
+
+  """
+  print("sharing")
+  data[0].share_memory_()
+  data[1].share_memory_()
+  print("shared")
+  """
 
   #load_data('lj')
-  world_size = 8
+  #world_size = 8
+  world_size = 2
 
   os.environ['MASTER_ADDR'] = 'localhost'
   os.environ['MASTER_PORT'] = '12355'
