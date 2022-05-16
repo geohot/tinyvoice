@@ -3,3 +3,4 @@ __pycache__/*
 models/
 wandb
 data/*.pt
+data/*.raw
