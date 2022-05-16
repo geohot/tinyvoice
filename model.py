@@ -55,12 +55,19 @@ class Rec(nn.Module):
       nn.ReLU(),
     )
 
-    H = 80
+    #H = 512
+    #H = 80
+    #H = 256
+    H = 144
     self.linear = nn.Sequential(
       nn.Linear(C*(((80 - 1) // 2 - 1) // 2), H),
       nn.Dropout(0.1),
     )
-    self.conformer = Conformer(input_dim=H, num_heads=4, ffn_dim=H*4, num_layers=12, depthwise_conv_kernel_size=31)
+
+    #encoder_layer = nn.TransformerEncoderLayer(d_model=H, nhead=4, dim_feedforward=H*4)
+    #self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=12)
+    #self.gru = nn.GRU(H, H, batch_first=True)
+    self.conformer = Conformer(input_dim=H, num_heads=4, ffn_dim=H*4, num_layers=16, depthwise_conv_kernel_size=31)
 
     self.decode = nn.Sequential(
       nn.Dropout(0.5),
@@ -84,6 +91,8 @@ class Rec(nn.Module):
     y = (y>>2)-1
     x = x[:, :torch.max(y)] # might clip last conv feature
     x = self.linear(x)
+    #x,zz = self.transformer(x), y
+    #x,zz = self.gru(x)[0], y
     x,zz = self.conformer(x, y)
     x = self.decode(x)
     return torch.nn.functional.log_softmax(x, dim=2).permute(1,0,2), zz
