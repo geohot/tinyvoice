@@ -103,7 +103,9 @@ if __name__ == "__main__":
   #print(f"got {len(dispatch)}")
   dispatch += get_ljspeech()
   print(f"got {len(dispatch)}")
-  dispatch += get_cv("train")[0:100000]
+  cv = get_cv("train")
+  random.shuffle(cv)
+  dispatch += cv[0:100000]
   print(f"got {len(dispatch)}")
 
   random.seed(1337)
@@ -112,11 +114,9 @@ if __name__ == "__main__":
   #dispatch = dispatch[0:1000]
   X,Y,meta = extract(dispatch)
   print(X.shape, Y.shape)
-  """
   X = X.numpy()
   with open("data/big_X.raw", "wb") as f:
     f.write(X.data)
   torch.save([Y,meta], "data/big_Y.pt")
-  """
-  torch.save([X,Y,meta], "data/cv.pt")
+  #torch.save([X,Y,meta], "data/cv.pt")
 
