@@ -36,8 +36,9 @@ def load_example(x):
 
 def proc(xy):
   x,y = xy
-  ex = load_example(x)
+  ex = load_example(x) #.type(torch.float16)
   ey = torch.tensor(from_text(y), dtype=torch.uint8)
+  #print(ex.shape[0], ex.sum(), ex.mean(), ex.var())
   if ex.shape[0] < XMAX and len(ey) < YMAX:
     return ex, ey, (x, ex.shape[0], len(ey))
   else:
@@ -74,7 +75,8 @@ def get_cv(f):
   with open(f"{DATASET}/{f}.tsv", newline='') as csvfile:
     reader = csv.reader(csvfile, delimiter='\t')
     for row in reader:
-      ret.append((f"{DATASET}/clips/{row[1]}", row[2]))
+      if row[1].endswith(".mp3"):
+        ret.append((f"{DATASET}/clips/{row[1]}", row[2]))
   return ret
 
 def extract(dispatch):
@@ -83,8 +85,9 @@ def extract(dispatch):
     #for ex,ey,meta in tqdm(map(proc, dispatch), total=len(dispatch)):
     for ex,ey,meta in tqdm(pool.imap(proc, dispatch, chunksize=100), total=len(dispatch)):
       if ex is not None:
-        ex_x.append(ex.clone().type(torch.float16))
-        ex_y.append(ey.clone().type(torch.uint8))
+        # clone drops the multiprocess sharing
+        ex_x.append(ex.clone())
+        ex_y.append(ey.clone())
         ameta.append(meta)
   sequences_padded = torch.nn.utils.rnn.pad_sequence(ex_x, batch_first=True)
   ys_padded = torch.nn.utils.rnn.pad_sequence(ex_y, batch_first=True)
@@ -92,22 +95,21 @@ def extract(dispatch):
 
 if __name__ == "__main__":
   dispatch = []
-  """
   dispatch += get_librespeech("train-clean-100")
   print(f"got {len(dispatch)}")
   dispatch += get_librespeech("train-clean-360")
   print(f"got {len(dispatch)}")
-  dispatch += get_librespeech("test-clean")
-  print(f"got {len(dispatch)}")
+  #dispatch += get_librespeech("test-clean")
+  #print(f"got {len(dispatch)}")
   dispatch += get_ljspeech()
-  """
-  dispatch += get_cv("train")
+  print(f"got {len(dispatch)}")
+  dispatch += get_cv("train")[0:100000]
   print(f"got {len(dispatch)}")
 
   random.seed(1337)
   random.shuffle(dispatch)
 
-  dispatch = dispatch[0:10000]
+  #dispatch = dispatch[0:1000]
   X,Y,meta = extract(dispatch)
   print(X.shape, Y.shape)
   """
