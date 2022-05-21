@@ -28,8 +28,9 @@ class TemporalBatchNorm(nn.Module):
     return self.bn(x.permute(0,2,1)).permute(0,2,1)
 
 class Rec(nn.Module):
-  def __init__(self):
+  def __init__(self, expand=1):
     super().__init__()
+    self.expand = expand
 
     """
     C, H = 16, 256
@@ -71,7 +72,7 @@ class Rec(nn.Module):
 
     self.decode = nn.Sequential(
       nn.Dropout(0.5),
-      nn.Linear(H, len(CHARSET)*4)
+      nn.Linear(H, len(CHARSET)*self.expand)
     )
 
   def forward(self, x, y):
@@ -94,7 +95,7 @@ class Rec(nn.Module):
     #x,zz = self.transformer(x), y
     #x,zz = self.gru(x)[0], y
     x,zz = self.conformer(x, y)
-    x = self.decode(x).reshape(x.shape[0], x.shape[1]*4, len(CHARSET))
+    x = self.decode(x).reshape(x.shape[0], x.shape[1]*self.expand, len(CHARSET))
     zz *= 4
     return torch.nn.functional.log_softmax(x, dim=2).permute(1,0,2), zz
 
